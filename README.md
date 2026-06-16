@@ -1,5 +1,11 @@
 # LLMRcontent
 
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/asanaei/LLMRcontent/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/asanaei/LLMRcontent/actions/workflows/R-CMD-check.yaml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Website](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://asanaei.github.io/LLMRcontent/)
+<!-- badges: end -->
+
 LLM-assisted content analysis for the social sciences, built on
 [LLMR](https://github.com/asanaei/LLMR). Three connected concerns, one package:
 coding, robustness audits, and replication archives. When a text label becomes a
