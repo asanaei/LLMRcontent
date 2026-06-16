@@ -1,0 +1,14 @@
+url: https://asanaei.github.io/LLMRcontent/
+template:
+  bootstrap: 5
+title: LLMRcontent
+development:
+  mode: auto
+home:
+  links:
+  - text: Source on GitHub
+    href: https://github.com/asanaei/LLMRcontent
+navbar:
+  structure:
+    left: [reference, articles, news]
+    right: [github]
