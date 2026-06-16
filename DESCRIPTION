@@ -1,0 +1,44 @@
+Type: Package
+Package: LLMRcontent
+Title: LLM-Assisted Content Analysis for the Social Sciences
+Version: 0.2.0
+Authors@R:
+    person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
+Description: A validated workflow for content analysis with large language models,
+    built on 'LLMR'. Three connected concerns, one package. Coding turns a
+    codebook and a sealed gold standard into error-corrected category
+    prevalences with reliability against held-out human labels. Robustness audits
+    test whether a coded conclusion survives the measurement multiverse of
+    prompts, models, label orders, and temperatures, reporting sign, rank, and
+    fragility. Archives turn the audit log of a study into a content-addressed,
+    sealed, reviewer-runnable replication record. The report() output for each
+    object states its measurement-error, fragility, and verifiability stance: a
+    coding result is a measurement with known error, an audit is a fragility
+    statement, and an archive is a verifiable record, not a claim of truth. An
+    optional Shiny GUI (run_content_studio()) drives the same workflow
+    interactively.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.1.0)
+Imports:
+    LLMR (>= 0.8.6),
+    tibble,
+    rlang,
+    cli,
+    digest,
+    jsonlite,
+    stats,
+    utils
+Suggests:
+    testthat (>= 3.0.0),
+    ggplot2,
+    shiny,
+    bslib,
+    DT,
+    LLMR.shiny
+Config/testthat/edition: 3
+URL: https://github.com/asanaei/LLMRcontent, https://asanaei.github.io/LLMRcontent/
+BugReports: https://github.com/asanaei/LLMRcontent/issues
