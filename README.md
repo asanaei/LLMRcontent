@@ -1,4 +1,4 @@
-# LLMRcontent
+# LLMRcontent <img src="man/figures/logo.png" align="right" width="120" alt="LLMRcontent icon" />
 
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/asanaei/LLMRcontent/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/asanaei/LLMRcontent/actions/workflows/R-CMD-check.yaml)
