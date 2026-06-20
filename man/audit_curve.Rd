@@ -14,11 +14,15 @@ audit_curve(audit, plot = interactive())
 in interactive sessions.}
 }
 \value{
-The ordered tibble, invisibly when plotted.
+The ordered tibble (the estimate ranking plus the grid coordinates),
+invisibly when plotted.
 }
 \description{
 Cells ordered by their estimate, with the grid coordinates alongside --
 the table behind the classic specification-curve figure. With \code{ggplot2}
-installed and \code{plot = TRUE}, the curve is drawn (estimates on top, a
-specification panel below).
+installed and \code{plot = TRUE}, the estimates are drawn against their rank, with
+a reference line at zero. The companion specification panel (which cell sits
+at each rank) is not drawn; the returned tibble carries the \code{rank} together
+with every grid column, so you can lay out that panel yourself or read off
+which specification produced any point.
 }

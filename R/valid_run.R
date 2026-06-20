@@ -201,14 +201,18 @@ audit_stability <- function(audit, reference = 1L) {
 #'
 #' Cells ordered by their estimate, with the grid coordinates alongside --
 #' the table behind the classic specification-curve figure. With `ggplot2`
-#' installed and `plot = TRUE`, the curve is drawn (estimates on top, a
-#' specification panel below).
+#' installed and `plot = TRUE`, the estimates are drawn against their rank, with
+#' a reference line at zero. The companion specification panel (which cell sits
+#' at each rank) is not drawn; the returned tibble carries the `rank` together
+#' with every grid column, so you can lay out that panel yourself or read off
+#' which specification produced any point.
 #'
 #' @aliases specification_curve
 #' @param audit An [audit_run()] result.
 #' @param plot Draw the figure (needs `ggplot2`); default is to draw only
 #'   in interactive sessions.
-#' @return The ordered tibble, invisibly when plotted.
+#' @return The ordered tibble (the estimate ranking plus the grid coordinates),
+#'   invisibly when plotted.
 #' @export
 audit_curve <- function(audit, plot = interactive()) {
   stopifnot(inherits(audit, "audit"))

@@ -1,8 +1,9 @@
 # coder_run.R -------------------------------------------------------------------------
-# Execution: protocols meet data. All three entry points build an experiments
-# tibble (config + messages, one row per unit x protocol x replicate) and hand
-# it to a runner, by default LLMR::call_llm_par(), so tests can inject a fake
-# runner and the whole layer stays offline-testable.
+# Execution: protocols meet data. The entry points build an experiments tibble
+# (config + messages, one row per unit x protocol) and hand it to a runner, by
+# default LLMR::call_llm_par(), so tests can inject a fake runner and the whole
+# layer stays offline-testable. Replicates are not a column here: code_corpus()
+# runs the table once per replicate and stamps the replicate id onto the results.
 
 # Internal: experiments tibble for a set of protocols over texts.
 .build_experiments <- function(protocols, texts) {
