@@ -4,18 +4,18 @@ Title: LLM-Assisted Content Analysis for the Social Sciences
 Version: 0.2.0
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
-Description: A validated workflow for content analysis with large language models,
-    built on 'LLMR'. Three connected concerns, one package. Coding turns a
-    codebook and a sealed gold standard into error-corrected category
-    prevalences with reliability against held-out human labels. Robustness audits
-    test whether a coded conclusion survives the measurement multiverse of
-    prompts, models, label orders, and temperatures, reporting sign, rank, and
-    fragility. Archives turn the audit log of a study into a content-addressed,
-    sealed, reviewer-runnable replication record. The report() output for each
+Description: A workflow for content analysis with large language models that
+    validates coded labels against held-out human labels, built on 'LLMR'. It
+    links three stages. Coding turns a codebook and a sealed gold standard into
+    error-corrected category prevalences. Robustness audits test whether a coded
+    conclusion holds across the measurement multiverse of prompts, models, label
+    orders, and temperatures, reporting changes in sign, rank, and conclusion
+    stability. Archives turn the audit log of a study into a content-addressed,
+    sealed replication record a reviewer can rerun. The report() output for each
     object states its measurement-error, fragility, and verifiability stance: a
     coding result is a measurement with known error, an audit is a fragility
     statement, and an archive is a verifiable record, not a claim of truth. An
-    optional Shiny GUI (run_content_studio()) drives the same workflow
+    optional Shiny GUI (run_content_studio()) runs the same workflow
     interactively.
 License: MIT + file LICENSE
 Encoding: UTF-8
