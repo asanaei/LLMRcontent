@@ -4,7 +4,7 @@
 # -- as tabs over the shared LLMR.shiny substrate (provider/model sidebar, key
 # and cost tiles, offline demo mode).
 #
-# shiny, bslib, DT, and LLMR.shiny are Suggests, not Imports: a non-GUI user
+# shiny, bslib, DT, ggplot2, and LLMR.shiny are Suggests, not Imports: a non-GUI user
 # installs none of them and the analysis package stays lean. Every call into
 # those packages is fully qualified (or forwarded through the lazy helpers in
 # gui_aliases.R), and the launcher guards on all four.
