@@ -156,3 +156,44 @@ test_that("tuning results carry the cost column when the runner reports usage", 
                         })
   expect_true(is.na(res2$tokens))
 })
+
+test_that("duplicate protocol labels stay one-to-one in tuning (regression)", {
+  # Tuning prompt variants on one model gives every protocol the same default
+  # label; the per_category attribute and the comparison rows must not
+  # overwrite each other.
+  g <- fix_gold()
+  p1 <- protocol(fix_codebook(), fix_config(),
+                 prompt = "{codebook}\nA:\n{text}\nLabel:")
+  p2 <- protocol(fix_codebook(), fix_config(),
+                 prompt = "{codebook}\nB variant:\n{text}\nLabel:")
+  expect_identical(p1$label, p2$label)
+  t <- tune_protocol(list(p1, p2), g, .runner = fake_runner_perfect)
+  expect_equal(nrow(t), 2L)
+  expect_equal(anyDuplicated(t$protocol), 0L)
+  expect_length(attr(t, "per_category"), 2L)
+  expect_setequal(names(attr(t, "per_category")), t$protocol)
+})
+
+test_that("every placeholder occurrence is rendered, not just the first (regression)", {
+  p <- protocol(fix_codebook(), fix_config(),
+                prompt = "{codebook}\nRepeat: {text}\nAgain: {text}\nEnd")
+  out <- LLMRcontent:::.render_prompt(p, "UNITTEXT")
+  expect_false(grepl("{text}", out, fixed = TRUE))
+  expect_false(grepl("{codebook}", out, fixed = TRUE))
+  expect_length(gregexpr("UNITTEXT", out, fixed = TRUE)[[1]], 2L)
+})
+
+test_that("experiments carry the raw unit text as a metadata column", {
+  # An injected runner (the GUI's demo responder, say) must be able to key on
+  # the unit itself rather than the full rendered prompt.
+  g <- fix_gold()
+  seen <- NULL
+  spy <- function(experiments, ...) {
+    seen <<- experiments$text
+    fake_runner_perfect(experiments, ...)
+  }
+  invisible(tune_protocol(protocol(fix_codebook(), fix_config()), g,
+                          .runner = spy))
+  expect_false(is.null(seen))
+  expect_true(all(seen %in% g$data$text))
+})

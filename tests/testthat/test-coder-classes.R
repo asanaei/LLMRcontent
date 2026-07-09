@@ -106,3 +106,12 @@ test_that("gold_size returns a sensible plan", {
   expect_true(n %in% c(50, 100, 200, 300, 500, 800))
   expect_true(all(diff(attr(n, "widths")) < 0))   # wider grid, tighter CI
 })
+
+test_that("a seal without a split named 'test' warns instead of passing silently", {
+  expect_warning(
+    gold_set(data.frame(text = letters[1:4], label = rep(c("x", "y"), 2)),
+             text = "text", labels = "label",
+             split = c(dev = 0.5, holdout = 0.5), seal_test = TRUE),
+    "no split is named 'test'"
+  )
+})

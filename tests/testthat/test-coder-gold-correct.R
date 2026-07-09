@@ -190,3 +190,19 @@ test_that("id linkage survives reordered corpus rows", {
   expect_identical(res$link_by, "id")
   expect_equal(res$n_audit, 12L)
 })
+
+test_that("duplicated corpus ids are refused, not silently first-matched (regression)", {
+  # gold_set() enforces unique ids on the gold side; the coded corpus can still
+  # carry duplicates, and the id-link path must refuse them exactly as the
+  # text-hash path refuses duplicated text.
+  fx <- dup_text_fixture(use_id = TRUE)
+  extra <- fx$coded[1, , drop = FALSE]         # duplicate the first id
+  dup <- rbind(fx$coded, extra)
+  for (a in c("protocol_hash", "protocol_label", "text", "id", "labels")) {
+    attr(dup, a) <- attr(fx$coded, a)
+  }
+  expect_error(
+    gold_correct(dup, fx$gold),
+    "duplicated in the coded corpus"
+  )
+})

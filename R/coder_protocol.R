@@ -119,7 +119,7 @@ print.coding_protocol <- function(x, ...) {
 # so braces inside the coded text cannot break anything).
 .render_prompt <- function(protocol, text) {
   out <- protocol$prompt
-  out <- sub("{codebook}", format_codebook(protocol$codebook), out, fixed = TRUE)
-  out <- sub("{text}", text, out, fixed = TRUE)
+  out <- gsub("{codebook}", format_codebook(protocol$codebook), out, fixed = TRUE)
+  out <- gsub("{text}", text, out, fixed = TRUE)
   out
 }

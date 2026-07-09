@@ -66,6 +66,14 @@ gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
   if (is.null(names(split)) || abs(sum(split) - 1) > 1e-8) {
     abort("`split` must be a named vector of proportions summing to 1.")
   }
+  # The seal, the ledger, and gold_correct() all address the split literally
+  # named "test"; a seal with no such split would be vacuous, so say so now.
+  if (isTRUE(seal_test) && !"test" %in% names(split)) {
+    cli::cli_warn(paste(
+      "`seal_test = TRUE` but no split is named 'test'; the seal, the ledger,",
+      "and gold_correct() all act on the split named 'test', so nothing will",
+      "be sealed or ledgered. Name one split 'test' (or set seal_test = FALSE)."))
+  }
   if (anyNA(data[[labels]])) {
     abort("Gold labels contain NA; a missing label is not gold. Adjudicate or drop those units first.")
   }

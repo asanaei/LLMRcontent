@@ -46,7 +46,7 @@ test_that("the GUI assembles when its suggested packages are present", {
 })
 
 test_that(".content_gui_require errors helpfully when a GUI package is missing", {
-  need <- c("shiny", "bslib", "DT", "LLMR.shiny")
+  need <- c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny")
   if (all(vapply(need, requireNamespace, logical(1), quietly = TRUE))) {
     expect_true(isTRUE(LLMRcontent:::.content_gui_require()))
   } else {
@@ -67,7 +67,7 @@ test_that("install_gui_deps routes CRAN deps vs the LLMR.shiny special case", {
     .package = "base")
   status <- install_gui_deps(quiet = TRUE)
   # CRAN deps were attempted; LLMR.shiny reported unavailable (FALSE), not an error.
-  expect_true(all(c("shiny", "bslib", "DT") %in% installed))
+  expect_true(all(c("shiny", "bslib", "DT", "ggplot2") %in% installed))
   expect_false(status[["LLMR.shiny"]])
-  expect_named(status, c("shiny", "bslib", "DT", "LLMR.shiny"))
+  expect_named(status, c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))
 })

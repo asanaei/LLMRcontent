@@ -1,15 +1,15 @@
 # LLMRcontent 0.2.0
 
-* Absorbed the Shiny GUI that previously shipped as the separate LLMRstudio
-  package. Launch it with `run_content_studio()`; install its suggested
-  packages (shiny, bslib, DT, and the LLMR.shiny substrate) with
-  `install_gui_deps()`. The GUI is guarded with `requireNamespace()`, so non-GUI
-  users install none of those dependencies.
+Initial CRAN release.
 
-# LLMRcontent 0.1.0
-
-* First release. A validated workflow for content analysis with large language
-  models: codebook coding with sealed gold-set validation and error-corrected
-  prevalences, measurement-robustness audits with a fragility index, and
-  verifiable replication archives from audit logs. The package merges the work
-  of the then-separate LLMRcoder, LLMRvalid, and LLMRarchive packages.
+- Codebook-first coding validated against a sealed gold standard, with
+  error-corrected category prevalences: `gold_set()`, `protocol_lock()`,
+  `validate_protocol()`, `code_corpus()`, `gold_correct()`.
+- Measurement-multiverse robustness audits across prompts, models, label
+  orders, and temperatures, with stability and fragility summaries:
+  `audit_plan()`, `audit_run()`, `audit_stability()`, `audit_fragility()`.
+- Content-addressed, sealed replication archives built from LLMR audit logs,
+  with offline replay and integrity checks: `archive_build()`,
+  `archive_seal()`, `archive_check()`, `archive_replay()`.
+- Optional Shiny GUI (`run_content_studio()`) running the same workflow
+  interactively; every GUI dependency is a guarded Suggests.

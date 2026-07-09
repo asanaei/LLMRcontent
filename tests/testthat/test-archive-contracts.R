@@ -215,3 +215,38 @@ test_that("documented surface names remain real exports", {
   base_exports <- c("data.frame", "readLines", "sample", "writeLines")
   expect_true(all(base_exports %in% getNamespaceExports("base")))
 })
+
+test_that("archive_verify names the unknown strata columns in plain text (regression)", {
+  err <- tryCatch(
+    archive_verify(fix_contract_archive(), sample = 1, strata = "no_such_column"),
+    error = conditionMessage
+  )
+  expect_match(err, "no_such_column", fixed = TRUE)
+  expect_false(grepl("{.field", err, fixed = TRUE))
+})
+
+test_that("archive_verify excludes NA temperatures from n_temperature0 (regression)", {
+  # One record at temperature 0, one with no temperature at all: the
+  # exact-reproduction denominator counts only the former.
+  lines <- c(
+    paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
+           '"kind":"call","provider":"openai","model":"m",',
+           '"request":{"messages":[{"role":"user","content":"q1"}],',
+           '"temperature":0},"usage":{"sent":1,"rec":1},',
+           '"response_id":"r1","text":"A"}'),
+    paste0('{"ts":"2026-06-01T10:00:02+0000","schema_version":"1.0",',
+           '"kind":"call","provider":"openai","model":"m",',
+           '"request":{"messages":[{"role":"user","content":"q2"}]},',
+           '"usage":{"sent":1,"rec":1},"response_id":"r2","text":"B"}'))
+  path <- tempfile(fileext = ".jsonl")
+  writeLines(lines, path, useBytes = TRUE)
+  a <- archive_build(path)
+  echo <- function(experiments, ...) {
+    experiments$response_text <- rep("A", nrow(experiments))
+    experiments
+  }
+  set.seed(110)
+  drift <- archive_verify(a, sample = 1, .runner = echo)
+  expect_true(anyNA(drift$details$temperature))
+  expect_equal(sum(drift$table$n_temperature0), 1L)
+})

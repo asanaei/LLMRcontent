@@ -22,14 +22,14 @@ reimplementing it: the package defines behavior, the GUI defines
 presentation.
 }
 \details{
-The GUI is optional. It needs the suggested packages shiny, bslib, DT, and
-LLMR.shiny; install them with \code{\link[=install_gui_deps]{install_gui_deps()}} first. Live runs read
-provider API keys from environment variables only, never pasted into the app;
-a deterministic demo mode runs offline.
+The GUI is optional. It needs the suggested packages shiny, bslib, DT,
+ggplot2, and LLMR.shiny; install them with \code{\link[=install_gui_deps]{install_gui_deps()}} first. Live
+runs read provider API keys from environment variables only, never pasted
+into the app; a deterministic demo mode runs offline.
 }
 \examples{
 if (interactive() &&
-    all(vapply(c("shiny", "bslib", "DT", "LLMR.shiny"),
+    all(vapply(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"),
                requireNamespace, logical(1), quietly = TRUE))) {
   run_content_studio()
 }

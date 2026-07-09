@@ -140,6 +140,6 @@ print.audit_plan <- function(x, ...) {
 # Internal: render one prompt for one text under one label order.
 .render_audit_prompt <- function(template, text, labels, order) {
   labs <- if (identical(order, "reversed")) rev(labels) else labels
-  out <- sub("{labels}", paste(labs, collapse = ", "), template, fixed = TRUE)
-  sub("{text}", text, out, fixed = TRUE)
+  out <- gsub("{labels}", paste(labs, collapse = ", "), template, fixed = TRUE)
+  gsub("{text}", text, out, fixed = TRUE)
 }

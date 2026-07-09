@@ -6,14 +6,19 @@
 # This keeps the module call sites terse without an unconditional Suggests
 # dependency at build/check time.
 
-# A local null-coalescing operator so the GUI modules need not borrow one from a
-# Suggests package. (rlang, an Import, also provides %||%, but defining it here
-# keeps the GUI files self-contained.)
-`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+# The GUI modules use %||% from rlang (an Import, brought in via 00_package.R);
+# no local redefinition, so the operator means the same thing package-wide.
 
 pkg_available            <- function(...) LLMR.shiny::pkg_available(...)
 install_guidance_ui      <- function(...) LLMR.shiny::install_guidance_ui(...)
-safe_llmr_call           <- function(...) LLMR.shiny::safe_llmr_call(...)
+# safe_llmr_call() captures its first argument lazily with
+# eval.parent(substitute(expr)); a `...` forwarder would re-home that
+# expression in this file's namespace and every module-local reference in it
+# would fail ("could not find function ..."). Forward by named promise so the
+# expression keeps its caller's environment.
+safe_llmr_call           <- function(expr, provider = NULL) {
+  LLMR.shiny::safe_llmr_call(expr, provider)
+}
 live_run_blocker_ui      <- function(...) LLMR.shiny::live_run_blocker_ui(...)
 build_runner             <- function(...) LLMR.shiny::build_runner(...)
 build_llm_config         <- function(...) LLMR.shiny::build_llm_config(...)

@@ -14,6 +14,10 @@
       rows[[length(rows) + 1L]] <- tibble::tibble(
         protocol_id = p,
         unit_id = i,
+        # The raw unit text rides along as a metadata column so an injected
+        # runner (a demo responder, say) can key on the unit rather than on
+        # the full rendered prompt; LLMR::call_llm_par() passes it through.
+        text = as.character(texts[[i]]),
         config = list(pr$config),
         messages = list(c(user = .render_prompt(pr, texts[[i]])))
       )
@@ -97,15 +101,19 @@ tune_protocol <- function(protocols, gold, split = "dev",
   truth <- as.character(g[[gold$labels]])
 
   res <- .run_protocols(protocols, texts, .runner = .runner, ...)
+  # Distinct labels keep the comparison table and the per_category attribute
+  # one-to-one with the protocols; duplicate labels (the default when tuning
+  # prompt variants on one model) would otherwise overwrite each other.
+  plabels <- make.unique(vapply(protocols, `[[`, character(1), "label"))
   per_cat <- list()
   rows <- lapply(seq_along(protocols), function(p) {
     ri <- res[res$protocol_id == p, ]
     ri <- ri[order(ri$unit_id), ]
     sc <- .score_labels(ri$label, truth, codebook_labels(protocols[[p]]$codebook))
     ci <- .acc_ci(ri$label, truth)
-    per_cat[[protocols[[p]]$label]] <<- sc$per_category
+    per_cat[[plabels[[p]]]] <<- sc$per_category
     tibble::tibble(
-      protocol = protocols[[p]]$label,
+      protocol = plabels[[p]],
       n = sc$n, accuracy = sc$accuracy,
       acc_lo = ci[1], acc_hi = ci[2],
       macro_f1 = sc$macro_f1, parse_failures = sc$parse_failures,

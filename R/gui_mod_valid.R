@@ -121,7 +121,17 @@ mod_valid_server <- function(id, shared) {
       x[!is.na(x)]
     }
 
-    shiny::observeEvent(input$data_file, { data_raw(read_csv_upload(input$data_file)); audit(NULL) })
+    # A malformed upload must show a banner, not kill the session.
+    shiny::observeEvent(input$data_file, {
+      df <- tryCatch(read_csv_upload(input$data_file), error = function(e) {
+        run_error(.valid_warn(paste("Could not read the CSV:", conditionMessage(e))))
+        NULL
+      })
+      if (is.null(df)) return()
+      run_error(NULL)
+      data_raw(df)
+      audit(NULL)
+    })
     shiny::observeEvent(input$load_demo, {
       data_raw(data.frame(
         text = c("cut taxes and deregulate", "fund public schools fully",
