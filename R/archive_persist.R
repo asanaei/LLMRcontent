@@ -30,8 +30,12 @@ archive_write <- function(archive, dir) {
                sealed = archive$sealed, seal = archive$seal,
                redacted = archive$redacted,
                manifest = archive$manifest)
+  # na = "null" keeps manifest columns that are entirely NA (status,
+  # model_version on clean logs); toJSON would otherwise omit them from every
+  # row and the round-trip would drop the columns, corrupting the failure count.
   writeLines(as.character(jsonlite::toJSON(meta, auto_unbox = TRUE,
-                                           null = "null", digits = NA)),
+                                           null = "null", na = "null",
+                                           digits = NA)),
              file.path(dir, "manifest.json"), useBytes = TRUE)
   invisible(dir)
 }

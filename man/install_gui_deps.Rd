@@ -18,11 +18,11 @@ available after the call, \code{FALSE} where it could not be installed (e.g.
 LLMR.shiny when it is not on CRAN and not already installed).
 }
 \description{
-The Shiny GUI (\code{\link[=run_content_studio]{run_content_studio()}}) needs four suggested packages: shiny,
-bslib, DT, and LLMR.shiny. This installs the ones that are missing. The first
-three come from CRAN; LLMR.shiny is the family's shared GUI substrate and may
-not be on CRAN yet, in which case this points you to its GitHub source rather
-than failing.
+The Shiny GUI (\code{\link[=run_content_studio]{run_content_studio()}}) needs five suggested packages: shiny,
+bslib, DT, ggplot2, and LLMR.shiny. This installs the ones that are missing.
+The first four come from CRAN; LLMR.shiny is the family's shared GUI
+substrate and may not be on CRAN yet, in which case this points you to its
+GitHub source rather than failing.
 }
 \examples{
 if (interactive()) {

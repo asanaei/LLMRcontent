@@ -57,7 +57,7 @@ The same three workflows run from a Shiny GUI, for collaborators who prefer a
 graphical interface:
 
 ```r
-install_gui_deps()        # shiny, bslib, DT, and the LLMR.shiny substrate
+install_gui_deps()        # shiny, bslib, DT, ggplot2, and the LLMR.shiny substrate
 run_content_studio()      # coding, robustness audit, and archive tabs
 ```
 
@@ -75,6 +75,6 @@ verifiable record -- none of them a claim of truth.
 ## Install
 
 ```r
-remotes::install_github("asanaei/LLMR")
+install.packages("LLMR")                     # on CRAN
 remotes::install_github("asanaei/LLMRcontent")
 ```

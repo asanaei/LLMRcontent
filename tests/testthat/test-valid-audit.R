@@ -210,3 +210,30 @@ test_that("the ecosystem hash convention is pinned (drift guard vs LLMR)", {
     LLMR::llm_hash(list(model = "gpt-oss-20b", temperature = 0)),
     "7c5ffbb0b308f20bf188a3efd962a2895f45ad202307234ee1965d86abc0606c")
 })
+
+test_that("audit prompts render every placeholder occurrence (regression)", {
+  out <- LLMRcontent:::.render_audit_prompt(
+    "{labels} twice {labels}: {text} and {text}", "U", c("a", "b"), "as_given")
+  expect_false(grepl("{text}", out, fixed = TRUE))
+  expect_false(grepl("{labels}", out, fixed = TRUE))
+  expect_length(gregexpr("U", out, fixed = TRUE)[[1]], 2L)
+})
+
+test_that("audit experiments carry the raw unit text as a metadata column", {
+  plan <- audit_plan(
+    data = data.frame(text = c("cut taxes", "fund schools")), text = "text",
+    estimator = function(d) mean(d$label == "a", na.rm = TRUE),
+    labels = c("a", "b"),
+    prompt = "One of: {labels}.\n\n{text}\n\nLabel:")
+  plan <- audit_add_models(plan,
+    list(m = LLMR::llm_config("groq", "fake-model", temperature = 0)))
+  seen <- NULL
+  spy <- function(experiments, ...) {
+    seen <<- experiments$text
+    experiments$response_text <- "a"
+    experiments
+  }
+  invisible(audit_run(plan, .runner = spy))
+  expect_false(is.null(seen))
+  expect_true(all(seen %in% c("cut taxes", "fund schools")))
+})

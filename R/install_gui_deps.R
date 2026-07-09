@@ -4,11 +4,11 @@
 
 #' Install the LLMRcontent GUI's suggested packages
 #'
-#' The Shiny GUI ([run_content_studio()]) needs four suggested packages: shiny,
-#' bslib, DT, and LLMR.shiny. This installs the ones that are missing. The first
-#' three come from CRAN; LLMR.shiny is the family's shared GUI substrate and may
-#' not be on CRAN yet, in which case this points you to its GitHub source rather
-#' than failing.
+#' The Shiny GUI ([run_content_studio()]) needs five suggested packages: shiny,
+#' bslib, DT, ggplot2, and LLMR.shiny. This installs the ones that are missing.
+#' The first four come from CRAN; LLMR.shiny is the family's shared GUI
+#' substrate and may not be on CRAN yet, in which case this points you to its
+#' GitHub source rather than failing.
 #'
 #' @param upgrade If `FALSE` (default), packages already installed are left
 #'   alone; if `TRUE`, CRAN packages are reinstalled to their latest versions.
@@ -25,7 +25,7 @@ install_gui_deps <- function(upgrade = FALSE, quiet = FALSE) {
   say <- function(...) if (!quiet) message(...)
   have <- function(p) requireNamespace(p, quietly = TRUE)
 
-  cran_pkgs <- c("shiny", "bslib", "DT")
+  cran_pkgs <- c("shiny", "bslib", "DT", "ggplot2")
   status <- stats::setNames(logical(0), character(0))
 
   for (p in cran_pkgs) {

@@ -135,3 +135,34 @@ test_that("a clean archive reports no duplicates", {
   expect_length(chk$duplicate_response_ids, 0L)
   expect_length(chk$duplicate_request_hashes, 0L)
 })
+
+test_that("a round-trip keeps manifest columns that are entirely NA (regression)", {
+  # On a log whose records never set model_version (and whose only failure is
+  # a status-less error record), toJSON without na = "null" used to drop the
+  # all-NA columns row-wise, and archive_read() then lost them -- silently
+  # zeroing the appendix failure count.
+  lines <- c(
+    paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
+           '"kind":"call","provider":"groq","model":"openai/gpt-oss-20b",',
+           '"request":{"messages":[{"role":"user","content":"hi"}],',
+           '"temperature":0},"usage":{"sent":5,"rec":2},',
+           '"response_id":"r-1","text":"reply"}'),
+    paste0('{"ts":"2026-06-01T10:00:02+0000","schema_version":"1.0",',
+           '"kind":"error","provider":"groq","model":"openai/gpt-oss-20b",',
+           '"message":"boom"}'))
+  a <- archive_seal(archive_build(fix_archive_log(lines), name = "na-cols"))
+  expect_true(all(is.na(a$manifest$model_version)))
+  expect_true(all(is.na(a$manifest$status)))
+
+  dir <- file.path(tempdir(), paste0("archive-na-", as.integer(stats::runif(1, 1, 1e9))))
+  archive_write(a, dir)
+  b <- archive_read(dir)
+
+  expect_setequal(names(b$manifest), names(a$manifest))
+  fails_before <- grep("failure", archive_appendix(a), value = TRUE)
+  fails_after <- grep("failure", archive_appendix(b), value = TRUE)
+  expect_identical(fails_after, fails_before)
+  expect_match(fails_after, "1 failure(s)", fixed = TRUE)
+  expect_true(archive_check(b)$intact)
+  expect_true(archive_check(b)$root_ok)
+})

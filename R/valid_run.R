@@ -86,6 +86,10 @@ audit_run <- function(plan, .runner = NULL, ...) {
     for (i in seq_along(texts)) {
       rows[[length(rows) + 1L]] <- tibble::tibble(
         cell = g, unit_id = i,
+        # Raw unit text as a metadata column, so an injected runner can key on
+        # the unit rather than the full rendered prompt (which carries the
+        # labels); LLMR::call_llm_par() passes it through.
+        text = as.character(texts[[i]]),
         config = list(cfg),
         messages = list(c(user = .render_audit_prompt(
           plan$prompts[[grid$prompt[g]]], texts[[i]],

@@ -119,14 +119,16 @@ mod_coder_server <- function(id, shared) {
       y[nzchar(y)]
     }
 
+    # Read-only: collects the current inputs and builds the codebook object.
+    # It must not write categories(): draft_codebook() calls it on every
+    # keystroke, and a write would re-render the category editor and steal
+    # focus. The reactiveVal is persisted in the save/add/remove observers.
     build_codebook <- function() {
       df <- collect_categories()
       labels <- trimws(df$label)
       if (sum(nzchar(labels)) < 2) {
         stop("At least two category labels are required.", call. = FALSE)
       }
-
-      categories(df)
 
       cat_objs <- lapply(seq_len(NROW(df)), function(i) {
         LLMRcontent::cb_category(
@@ -217,6 +219,7 @@ mod_coder_server <- function(id, shared) {
     })
 
     shiny::observeEvent(input$save_codebook, {
+      categories(collect_categories())
       res <- safe_llmr_call(build_codebook(), shared$provider())
       if (!res$ok) {
         run_error(res$ui)
@@ -227,8 +230,24 @@ mod_coder_server <- function(id, shared) {
       step(2L)
     })
 
+    # A malformed upload must show a banner, not kill the session.
+    read_upload_safely <- function(file) {
+      tryCatch(read_csv_upload(file), error = function(e) {
+        run_error(
+          bslib::card(
+            class = "border-warning",
+            bslib::card_body(paste("Could not read the CSV:", conditionMessage(e)))
+          )
+        )
+        NULL
+      })
+    }
+
     shiny::observeEvent(input$gold_file, {
-      gold_raw(read_csv_upload(input$gold_file))
+      df <- read_upload_safely(input$gold_file)
+      if (is.null(df)) return()
+      run_error(NULL)
+      gold_raw(df)
       gold(NULL)
     })
 
@@ -277,7 +296,10 @@ mod_coder_server <- function(id, shared) {
 
     shiny::observeEvent(input$create_gold, {
       shiny::req(gold_raw(), input$gold_text_col, input$gold_label_col)
-      set.seed(as.integer(input$gold_seed %||% 1L))
+      # A cleared numericInput yields NA; fall back to the default seed.
+      seed <- suppressWarnings(as.integer(input$gold_seed %||% 1L))
+      if (is.na(seed)) seed <- 1L
+      set.seed(seed)
       split <- c(dev = input$dev_split / 100, test = 1 - input$dev_split / 100)
 
       res <- safe_llmr_call(
@@ -384,10 +406,11 @@ mod_coder_server <- function(id, shared) {
       NROW(as_display_table(out))
     })
 
+    # tune_protocol() codes each dev unit once per protocol; replicates apply
+    # only to code_corpus(), so they do not enter this count.
     shiny::observe({
       if (identical(step(), 4L) && !is.null(protocols())) {
-        reps <- as.integer(input$protocol_replicates %||% 1L)
-        shared$set_plan(length(protocols()) * dev_units() * reps, "Tuning on dev split")
+        shared$set_plan(length(protocols()) * dev_units(), "Tuning on dev split")
       }
     })
 
@@ -399,7 +422,7 @@ mod_coder_server <- function(id, shared) {
         return()
       }
 
-      planned <- length(protocols()) * dev_units() * as.integer(input$protocol_replicates %||% 1L)
+      planned <- length(protocols()) * dev_units()
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
 
       res <- safe_llmr_call(
@@ -468,10 +491,7 @@ mod_coder_server <- function(id, shared) {
 
     output$lock_status <- shiny::renderUI({
       shiny::req(locked_protocol())
-      hash <- tryCatch(
-        LLMRcontent::codebook_hash(codebook()),
-        error = function(e) "hash unavailable"
-      )
+      hash <- locked_protocol()$hash %||% "hash unavailable"
       shiny::tags$p(class = "text-success", paste("LOCKED", hash))
     })
 
@@ -481,10 +501,10 @@ mod_coder_server <- function(id, shared) {
       DT::datatable(as_display_table(ledger), options = list(scrollX = TRUE, pageLength = 5))
     })
 
+    # validate_protocol() codes each test unit once; no replicate factor.
     shiny::observe({
       if (identical(step(), 5L) && !is.null(locked_protocol())) {
-        reps <- as.integer(input$protocol_replicates %||% 1L)
-        shared$set_plan(test_units() * reps, "Validation on sealed test split")
+        shared$set_plan(test_units(), "Validation on sealed test split")
       }
     })
 
@@ -506,7 +526,7 @@ mod_coder_server <- function(id, shared) {
         return()
       }
 
-      planned <- test_units() * as.integer(input$protocol_replicates %||% 1L)
+      planned <- test_units()
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
 
       res <- safe_llmr_call(
@@ -541,6 +561,7 @@ mod_coder_server <- function(id, shared) {
     })
 
     output$validation_plot <- shiny::renderPlot({
+      shiny::req(requireNamespace("ggplot2", quietly = TRUE))
       df <- data.frame(
         split = c("dev", "test"),
         units = c(dev_units(), test_units())
@@ -558,7 +579,10 @@ mod_coder_server <- function(id, shared) {
     })
 
     shiny::observeEvent(input$corpus_file, {
-      corpus_raw(read_csv_upload(input$corpus_file))
+      df <- read_upload_safely(input$corpus_file)
+      if (is.null(df)) return()
+      run_error(NULL)
+      corpus_raw(df)
       coded(NULL)
       corrected(NULL)
     })
@@ -642,14 +666,25 @@ mod_coder_server <- function(id, shared) {
       )
 
       correction_warnings(warns)
-      corrected(if (!is.null(corr)) corr else out)
+      # The coded corpus and the gold correction are different objects: coded()
+      # is the row-per-unit corpus (the download), corrected() is the
+      # gold_correction summary (the prevalence table). Keep them separate.
+      corrected(corr)
       run_error(NULL)
     })
 
     output$coded_preview <- DT::renderDT({
       shiny::req(coded())
-      shown <- corrected() %||% coded()
-      DT::datatable(as_display_table(shown), options = list(scrollX = TRUE, pageLength = 5))
+      DT::datatable(as_display_table(coded()), options = list(scrollX = TRUE, pageLength = 5))
+    })
+
+    output$correction_table <- DT::renderDT({
+      shiny::req(corrected())
+      DT::datatable(
+        as_display_table(tibble::as_tibble(corrected())),
+        caption = "Gold-corrected category prevalences",
+        options = list(scrollX = TRUE, pageLength = 5)
+      )
     })
 
     output$correction_warnings <- shiny::renderUI({
@@ -688,7 +723,7 @@ mod_coder_server <- function(id, shared) {
       },
       content = function(file) {
         bundle_coder_artifacts(
-          coded = corrected() %||% coded(),
+          coded = coded(),
           validation = validation(),
           gold = gold(),
           protocol = locked_protocol(),
@@ -841,6 +876,7 @@ coder_corpus_ui <- function(ns, shared, corpus, coded) {
     shiny::actionButton(ns("run_code_corpus"), "Code corpus", class = "btn-primary", disabled = disabled),
     shiny::uiOutput(ns("correction_warnings")),
     DT::DTOutput(ns("coded_preview")),
+    DT::DTOutput(ns("correction_table")),
     shiny::actionButton(ns("continue_corpus"), "Continue to downloads", class = "btn-primary")
   )
 }

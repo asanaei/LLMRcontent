@@ -182,19 +182,23 @@ gold_correct <- function(coded, gold, conf = 0.95) {
     abort(sprintf("No test-split gold units matched the coded corpus by %s; the audited units must be part of the coded corpus.",
                   link$by))
   }
-  # When linking by text hash, a matched unit whose key occurs more than once in
-  # the corpus cannot be assigned to a specific corpus row. match() would pick
-  # the first arbitrarily; refuse instead and point to the id remedy.
-  if (identical(link$by, "text hash")) {
-    corpus_counts <- table(corpus_key)
-    dup_keys <- names(corpus_counts)[corpus_counts > 1L]
-    n_dup <- sum(gold_key[matched] %in% dup_keys)
-    if (n_dup) {
+  # A matched unit whose key occurs more than once in the corpus cannot be
+  # assigned to a specific corpus row. match() would pick the first
+  # arbitrarily; refuse instead, whichever key is in use.
+  corpus_counts <- table(corpus_key)
+  dup_keys <- names(corpus_counts)[corpus_counts > 1L]
+  n_dup <- sum(gold_key[matched] %in% dup_keys)
+  if (n_dup) {
+    if (identical(link$by, "id")) {
       abort(paste0(
-        n_dup, " matched audit unit(s) have text that is duplicated in the corpus, ",
-        "so they cannot be linked to a specific corpus row by text. ",
-        "Add a stable `id` column to both gold_set() and code_corpus() to disambiguate."))
+        n_dup, " matched audit unit(s) have an id that is duplicated in the coded corpus, ",
+        "so they cannot be linked to a specific corpus row by id. ",
+        "Make the corpus's `id` column unique before code_corpus()."))
     }
+    abort(paste0(
+      n_dup, " matched audit unit(s) have text that is duplicated in the corpus, ",
+      "so they cannot be linked to a specific corpus row by text. ",
+      "Add a stable `id` column to both gold_set() and code_corpus() to disambiguate."))
   }
 
   gold_lab <- vapply(as.character(g[[gold$labels]][matched]), .normalize_label,

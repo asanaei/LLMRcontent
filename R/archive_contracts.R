@@ -259,7 +259,8 @@ archive_verify <- function(archive, sample = 0.05,
   eligible <- tibble::as_tibble(archive$manifest[eligible_idx, , drop = FALSE])
   unknown <- setdiff(strata, names(eligible))
   if (length(unknown)) {
-    abort("`strata` names unknown manifest column(s): {.field {unknown}}.")
+    abort(sprintf("`strata` names unknown manifest column(s): %s.",
+                  paste(unknown, collapse = ", ")))
   }
 
   gkey <- .archive_group_key(eligible, strata)
@@ -332,7 +333,8 @@ archive_verify <- function(archive, sample = 0.05,
   tab$n_exact <- as.integer(tabulate(sampled_group[exact], nbins = length(groups)))
   tab$exact_rate <- ifelse(tab$n_sampled > 0L, tab$n_exact / tab$n_sampled, NA_real_)
   tab$n_temperature0 <- as.integer(tabulate(
-    sampled_group[is.na(temperatures) | temperatures == 0], nbins = length(groups)))
+    sampled_group[!is.na(temperatures) & temperatures == 0],
+    nbins = length(groups)))
   tab$n_version_changed <- if (has_version)
     as.integer(tabulate(sampled_group[version_changed], nbins = length(groups)))
   else rep(NA_integer_, length(groups))
