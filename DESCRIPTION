@@ -15,7 +15,7 @@ Description: A workflow for content analysis with large language models that
     object states its measurement-error, fragility, and verifiability stance: a
     coding result is a measurement with known error, an audit is a fragility
     statement, and an archive is a verifiable record, not a claim of truth. An
-    optional Shiny GUI (run_content_studio()) runs the same workflow
+    optional 'Shiny' GUI (run_content_studio()) runs the same workflow
     interactively.
 License: MIT + file LICENSE
 Encoding: UTF-8
