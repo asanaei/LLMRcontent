@@ -1,9 +1,9 @@
 # coder_protocol.R --------------------------------------------------------------------
 # A coding protocol is everything that determines a label: codebook + prompt
 # template + model configuration + parser. Locking computes a content hash
-# over all of it; only locked protocols may evaluate on the sealed test split
-# or code a corpus, so the thing that was validated is provably the thing
-# that was used.
+# over all of it; only locked protocols may evaluate on the sealed holdout
+# split or code a corpus, so the thing that was validated is provably the
+# thing that was used.
 
 #' Default parser: match the reply to a codebook label
 #'

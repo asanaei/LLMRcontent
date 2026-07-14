@@ -9,8 +9,9 @@ gold_correct(coded, gold, conf = 0.95)
 \arguments{
 \item{coded}{A \code{\link[=code_corpus]{code_corpus()}} result.}
 
-\item{gold}{A \code{\link[=gold_set]{gold_set()}} whose test split is an audited subsample of
-the coded corpus (linked by a shared \code{id} when present, otherwise by a
+\item{gold}{A \code{\link[=gold_set]{gold_set()}} whose holdout split (\code{"test"} unless another
+\code{holdout} name was given at creation) is an audited subsample of the
+coded corpus (linked by a shared \code{id} when present, otherwise by a
 content hash of the text; see Details).}
 
 \item{conf}{Confidence level for the normal-approximation intervals.}
@@ -21,15 +22,15 @@ A \code{gold_correction} object: a list with \code{table} (\code{category},
 \code{n_parse_failures}, \code{n_audit}, \code{n_audit_parse_failures},
 \code{accuracy_audit}, \code{protocol_hash}, \code{protocol_label}, \code{conf}, \code{link_by}
 (how audit units were linked to the corpus, \code{"id"} or \code{"text hash"}),
-and \code{sealed} (whether the gold set's test split was sealed), with a
-print method.
+\code{holdout} (the audited split's name), and \code{sealed} (whether the gold
+set's holdout split was sealed), with a print method.
 }
 \description{
 LLM labels are error-prone measurements, and the error is rarely
 symmetric, so the naive share of a category in the coded corpus is
 biased. \code{gold_correct()} estimates corrected corpus-level category
-prevalences by combining the full coded corpus with the gold set's test
-split, and reports a standard error for each.
+prevalences by combining the full coded corpus with the gold set's
+holdout split, and reports a standard error for each.
 }
 \details{
 For category \code{c}, the estimator is the corpus mean of
@@ -42,7 +43,7 @@ number of audit pairs, and \code{N} the number of parsed corpus labels; the
 corpus term carries no sampling error because the corpus itself is the
 estimand's population.
 
-Only the test split is used. The dev split tuned the protocol, so dev
+Only the holdout split is used. The dev split tuned the protocol, so dev
 error rates are optimistic, and a correction built on them inherits the
 optimism.
 
@@ -67,7 +68,7 @@ Corrected shares are not clamped to \verb{[0, 1]}; a value outside the unit
 interval is a signal that the audit correction is noisy, and the print
 method says so when it happens.
 
-Using test-split truth is a look at the test split, so when the gold
+Using holdout truth is a look at the holdout split, so when the gold
 set is sealed the event is appended to the ledger and appears in
 \code{\link[=coding_report]{coding_report()}} like any other evaluation.
 }

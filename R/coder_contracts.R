@@ -1,9 +1,9 @@
 # coder_contracts.R ------------------------------------------------------------------
-# Gold-set correction: the coded corpus is the population, the test split is
-# the audit sample, and the difference estimator removes the measurement bias
-# the audit reveals.
+# Gold-set correction: the coded corpus is the population, the gold set's
+# holdout split is the audit sample, and the difference estimator removes the
+# measurement bias the audit reveals.
 
-# Internal: choose the key that links audit (test-split) units to coded-corpus
+# Internal: choose the key that links audit (holdout-split) units to coded-corpus
 # rows. Preference: a shared explicit id (the only key that survives identical
 # text), then a content hash of the text. Returns the two key vectors and a
 # human label for messages. The id path requires the same id column on both
@@ -46,12 +46,13 @@
 #' LLM labels are error-prone measurements, and the error is rarely
 #' symmetric, so the naive share of a category in the coded corpus is
 #' biased. `gold_correct()` estimates corrected corpus-level category
-#' prevalences by combining the full coded corpus with the gold set's test
-#' split, and reports a standard error for each.
+#' prevalences by combining the full coded corpus with the gold set's
+#' holdout split, and reports a standard error for each.
 #'
 #' @param coded A [code_corpus()] result.
-#' @param gold A [gold_set()] whose test split is an audited subsample of
-#'   the coded corpus (linked by a shared `id` when present, otherwise by a
+#' @param gold A [gold_set()] whose holdout split (`"test"` unless another
+#'   `holdout` name was given at creation) is an audited subsample of the
+#'   coded corpus (linked by a shared `id` when present, otherwise by a
 #'   content hash of the text; see Details).
 #' @param conf Confidence level for the normal-approximation intervals.
 #' @return A `gold_correction` object: a list with `table` (`category`,
@@ -59,8 +60,8 @@
 #'   `n_parse_failures`, `n_audit`, `n_audit_parse_failures`,
 #'   `accuracy_audit`, `protocol_hash`, `protocol_label`, `conf`, `link_by`
 #'   (how audit units were linked to the corpus, `"id"` or `"text hash"`),
-#'   and `sealed` (whether the gold set's test split was sealed), with a
-#'   print method.
+#'   `holdout` (the audited split's name), and `sealed` (whether the gold
+#'   set's holdout split was sealed), with a print method.
 #'
 #' @details
 #' For category `c`, the estimator is the corpus mean of
@@ -73,7 +74,7 @@
 #' corpus term carries no sampling error because the corpus itself is the
 #' estimand's population.
 #'
-#' Only the test split is used. The dev split tuned the protocol, so dev
+#' Only the holdout split is used. The dev split tuned the protocol, so dev
 #' error rates are optimistic, and a correction built on them inherits the
 #' optimism.
 #'
@@ -98,7 +99,7 @@
 #' interval is a signal that the audit correction is noisy, and the print
 #' method says so when it happens.
 #'
-#' Using test-split truth is a look at the test split, so when the gold
+#' Using holdout truth is a look at the holdout split, so when the gold
 #' set is sealed the event is appended to the ledger and appears in
 #' [coding_report()] like any other evaluation.
 #'
@@ -162,7 +163,8 @@ gold_correct <- function(coded, gold, conf = 0.95) {
   }
   naive <- vapply(labels, function(l) mean(llm[corpus_ok] == l), numeric(1))
 
-  g <- gold_split(gold, "test")
+  holdout <- .gold_holdout(gold)
+  g <- gold_split(gold, holdout)
 
   # Resolve the linkage key. An explicit id, shared by gold_set() and
   # code_corpus(), is the only key that disambiguates units with identical
@@ -175,12 +177,12 @@ gold_correct <- function(coded, gold, conf = 0.95) {
   match_idx <- match(gold_key, corpus_key, incomparables = NA)
   n_unmatched <- sum(is.na(match_idx))
   if (n_unmatched) {
-    cli::cli_warn("{n_unmatched} test-split gold unit(s) did not match the coded corpus by {link$by} and were excluded.")
+    cli::cli_warn("{n_unmatched} gold unit(s) from the holdout split ('{holdout}') did not match the coded corpus by {link$by} and were excluded.")
   }
   matched <- !is.na(match_idx)
   if (!any(matched)) {
-    abort(sprintf("No test-split gold units matched the coded corpus by %s; the audited units must be part of the coded corpus.",
-                  link$by))
+    abort(sprintf("No gold units from the holdout split ('%s') matched the coded corpus by %s; the audited units must be part of the coded corpus.",
+                  holdout, link$by))
   }
   # A matched unit whose key occurs more than once in the corpus cannot be
   # assigned to a specific corpus row. match() would pick the first
@@ -217,7 +219,8 @@ gold_correct <- function(coded, gold, conf = 0.95) {
   llm_audit <- llm_audit[audit_ok]
   n_audit <- length(llm_audit)
   if (!n_audit) {
-    abort("No matched test-split audit units have parsed corpus labels.")
+    abort(sprintf("No matched audit units from the holdout split ('%s') have parsed corpus labels.",
+                  holdout))
   }
   if (n_audit < 20L) {
     cli::cli_warn("Only {n_audit} audited unit(s); the correction's variance estimate is unstable.")
@@ -244,7 +247,7 @@ gold_correct <- function(coded, gold, conf = 0.95) {
   protocol_hash <- attr(coded, "protocol_hash") %||% NA_character_
   protocol_label <- attr(coded, "protocol_label") %||% NA_character_
   if (isTRUE(gold$sealed)) {
-    .gold_ledger_append(gold, "test", protocol_hash, protocol_label,
+    .gold_ledger_append(gold, holdout, protocol_hash, protocol_label,
                         n_audit, accuracy_audit)
   }
 
@@ -259,6 +262,7 @@ gold_correct <- function(coded, gold, conf = 0.95) {
          protocol_label = protocol_label,
          conf = conf,
          link_by = link$by,
+         holdout = holdout,
          sealed = isTRUE(gold$sealed)),
     class = "gold_correction"
   )
@@ -282,8 +286,9 @@ print.gold_correction <- function(x, ...) {
                 sprintf(" | audit pairs excluded for NA labels = %d",
                         x$n_audit_parse_failures) else "",
               substr(x$protocol_hash, 1, 12)))
-  cat(sprintf("  The audit uses the %stest split, linked into the corpus by %s.\n",
-              if (isTRUE(x$sealed)) "sealed " else "", x$link_by %||% "text hash"))
+  cat(sprintf("  The audit uses the %sholdout split ('%s'), linked into the corpus by %s.\n",
+              if (isTRUE(x$sealed)) "sealed " else "", x$holdout %||% "test",
+              x$link_by %||% "text hash"))
   outside <- x$table$share_corrected < 0 | x$table$share_corrected > 1
   if (any(outside, na.rm = TRUE)) {
     cat("  Corrected shares outside [0, 1] signal an unstable audit correction.\n")

@@ -1,6 +1,6 @@
 # coder_report.R ----------------------------------------------------------------------
 # Reporting: turn the artifacts into the prose and tables a methods section
-# needs, including the part nobody volunteers -- how many times the test
+# needs, including the part nobody volunteers -- how many times the holdout
 # split was consulted.
 
 #' Draft the methods text and validation summary
@@ -9,7 +9,7 @@
 #' annotation studies should report and rarely do: the instrument (codebook
 #' name, version, hash), the protocol (model, parameters, prompt hash), the
 #' validation result with its confidence interval, per-category performance,
-#' and the gold set's complete test-split ledger -- every evaluation that
+#' and the gold set's complete holdout-split ledger -- every evaluation that
 #' ever touched the sealed split, not just the flattering one.
 #'
 #' @param validation A [validate_protocol()] result.
@@ -40,8 +40,8 @@ coding_report <- function(validation, gold, protocol) {
             validation$split, validation$n, validation$accuracy,
             validation$acc_lo, validation$acc_hi, validation$macro_f1,
             validation$parse_failures),
-    sprintf("TEST-SPLIT LEDGER. The sealed split was evaluated %d time(s)%s.",
-            nrow(led),
+    sprintf("%s-SPLIT LEDGER. The sealed split was evaluated %d time(s)%s.",
+            toupper(.gold_holdout(gold)), nrow(led),
             if (nrow(led) > 1)
               " -- all evaluations are listed below, in order" else ""),
     if (nrow(led)) {

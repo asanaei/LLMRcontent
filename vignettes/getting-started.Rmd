@@ -1,0 +1,296 @@
+---
+title: "Getting started with LLMRcontent"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with LLMRcontent}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+LLMRcontent treats model labels as measured variables. A study defines the
+instrument, validates it against held-out human labels, and carries the
+remaining error into corpus estimates. The workflow below runs without a
+provider key or a network connection.
+
+```{r}
+library(LLMRcontent)
+```
+
+## Coding with held-out validation
+
+The codebook states the construct and its category boundaries.
+
+```{r}
+cb <- codebook(
+  name = "policy appraisal",
+  unit = "one statement",
+  categories = list(
+    cb_category("supportive", "Presents the proposal as beneficial."),
+    cb_category("critical", "Presents the proposal as harmful or deficient.")
+  ),
+  version = "1.0"
+)
+
+cb
+```
+
+The gold set stores its split assignment and seals the test split. Stable unit
+identifiers provide the later link between audited rows and the coded corpus.
+
+```{r}
+gold_data <- data.frame(
+  id = sprintf("g%02d", seq_len(40)),
+  text = c(
+    paste("clear public benefit case", seq_len(20)),
+    paste("serious public harm case", seq_len(20))
+  ),
+  label = rep(c("supportive", "critical"), each = 20),
+  stringsAsFactors = FALSE
+)
+
+set.seed(110)
+gold <- gold_set(
+  gold_data,
+  text = "text",
+  labels = "label",
+  id = "id",
+  split = c(dev = 0.5, test = 0.5)
+)
+
+gold
+```
+
+A locked protocol hashes the codebook, prompt, model configuration, and parser.
+The same object must be used for validation and corpus coding.
+
+```{r}
+cfg <- LLMR::llm_config("groq", "offline-demo", temperature = 0)
+locked <- protocol_lock(
+  protocol(cb, cfg, label = "keyword protocol")
+)
+
+locked
+```
+
+Execution functions accept a `.runner` with the data-frame contract of LLMR's
+parallel runner. This deterministic runner reads the unit text carried in the
+experiments and does not contact a provider.
+
+```{r}
+offline_coder <- function(experiments, ...) {
+  text <- tolower(experiments$text)
+  user <- vapply(experiments$messages, `[[`, "", "user")
+  temperature <- vapply(experiments$config, function(x) {
+    value <- x$model_params$temperature
+    if (is.null(value)) 0 else as.numeric(value)
+  }, numeric(1))
+
+  label <- ifelse(
+    grepl("benefit", text, fixed = TRUE),
+    "supportive",
+    "critical"
+  )
+
+  mixed <- grepl("mixed", text, fixed = TRUE)
+  reversed <- grepl("critical, supportive", user, fixed = TRUE)
+  label[mixed & xor(reversed, temperature > 0)] <- "supportive"
+  label[mixed & !xor(reversed, temperature > 0)] <- "critical"
+
+  label[grepl("benefit case (3|7|11|15)$", text)] <- "critical"
+
+  experiments$response_text <- label
+  experiments$sent_tokens <- 12L
+  experiments$rec_tokens <- 1L
+  experiments$success <- TRUE
+  experiments
+}
+```
+
+The locked protocol is evaluated on the sealed test split. This access is
+recorded in the gold-set ledger.
+
+```{r}
+validation <- validate_protocol(
+  locked,
+  gold,
+  .runner = offline_coder
+)
+
+validation
+```
+
+The corpus includes the audited units and new statements. The same runner and
+locked protocol produce the model labels.
+
+```{r}
+new_corpus <- data.frame(
+  id = sprintf("c%02d", seq_len(20)),
+  text = c(
+    paste("clear public benefit new", seq_len(8)),
+    paste("serious public harm new", seq_len(8)),
+    paste("mixed evidence new", seq_len(4))
+  ),
+  stringsAsFactors = FALSE
+)
+
+corpus <- rbind(gold_data[c("id", "text")], new_corpus)
+
+coded <- code_corpus(
+  corpus,
+  locked,
+  "text",
+  id = "id",
+  .runner = offline_coder
+)
+
+head(coded[c("id", "label")])
+```
+
+The correction combines the full set of model labels with model-gold
+differences in the sealed audit sample. Its standard errors describe uncertainty
+in that estimated correction.
+
+```{r}
+corrected <- gold_correct(coded, gold)
+
+tibble::as_tibble(corrected)
+```
+
+The shared report generic reads the validation object, locked protocol, and
+complete holdout ledger. The ledger now contains the validation and correction.
+
+```{r}
+methods <- LLMR::report(
+  validation,
+  gold = gold,
+  protocol = locked
+)
+
+methods
+```
+
+## Robustness and replication
+
+A robustness audit recomputes an estimand across prompt wording, label order,
+and temperature. Here the estimand is the supportive share centered at 0.5.
+
+```{r}
+plan <- audit_plan(
+  data = new_corpus,
+  text = "text",
+  estimator = function(d) {
+    mean(d$label == "supportive", na.rm = TRUE) - 0.5
+  },
+  labels = c("supportive", "critical"),
+  prompt = paste(
+    "Classify as one of: {labels}.",
+    "",
+    "{text}",
+    "",
+    "Label:",
+    sep = "\n"
+  )
+)
+
+plan <- audit_add_models(plan, list(keyword = cfg))
+plan <- audit_add_prompts(
+  plan,
+  concise = "Choose one label from {labels} for this statement: {text}"
+)
+plan <- audit_add_perturbations(
+  plan,
+  label_order = "reversed",
+  temperature = 0.7
+)
+
+audit <- audit_run(plan, .runner = offline_coder)
+
+audit_stability(audit)
+audit_fragility(audit)
+```
+
+The injected runner does not create provider audit records. Two synthetic
+LLMR-compatible records stand in for a live study log and exercise the archive
+contract without a provider call.
+
+```{r}
+log_path <- tempfile(fileext = ".jsonl")
+
+records <- list(
+  list(
+    ts = "2026-07-01T10:00:01+0000",
+    schema_version = "1.0",
+    kind = "call",
+    provider = "groq",
+    model = "offline-demo",
+    status = 200L,
+    request = list(
+      messages = list(
+        list(role = "user", content = "Classify statement 1")
+      ),
+      temperature = 0
+    ),
+    usage = list(sent = 12L, rec = 1L),
+    response_id = "offline-1",
+    text = "supportive"
+  ),
+  list(
+    ts = "2026-07-01T10:00:02+0000",
+    schema_version = "1.0",
+    kind = "call",
+    provider = "groq",
+    model = "offline-demo",
+    status = 200L,
+    request = list(
+      messages = list(
+        list(role = "user", content = "Classify statement 2")
+      ),
+      temperature = 0
+    ),
+    usage = list(sent = 12L, rec = 1L),
+    response_id = "offline-2",
+    text = "critical"
+  )
+)
+
+lines <- vapply(
+  records,
+  function(x) {
+    as.character(jsonlite::toJSON(
+      x,
+      auto_unbox = TRUE,
+      null = "null"
+    ))
+  },
+  character(1)
+)
+
+writeLines(lines, log_path, useBytes = TRUE)
+
+archive <- archive_seal(
+  archive_build(log_path, name = "offline-study")
+)
+
+archive_check(
+  archive,
+  results = data.frame(
+    response_id = c("offline-1", "offline-2")
+  )
+)
+```
+
+Archives are plain-text records plus a manifest. Writing and reading the
+archive leaves its seal available for a fresh integrity check and report.
+
+```{r}
+archive_dir <- tempfile("offline-study-")
+archive_write(archive, archive_dir)
+
+copy <- archive_read(archive_dir)
+archive_check(copy)
+LLMR::report(copy)
+```

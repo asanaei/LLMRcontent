@@ -13,9 +13,9 @@
 #' [validate_protocol()] -> [gold_correct()]. A sealed gold split audits the
 #' instrument, a content hash identifies the locked codebook protocol, and
 #' [gold_correct()] carries remaining label error into corrected corpus-level
-#' prevalences with standard errors. For accessible qualitative coding use
-#' 'quallmer'; use this package's coding tools when the label becomes a variable
-#' in quantitative analysis.
+#' prevalences with standard errors. LLMRcontent treats model labels as measured
+#' variables for label-as-variable inference with error correction, distinct
+#' from tooling for accessible qualitative coding.
 #'
 #' \strong{Robustness audits} ask whether a coded conclusion survives the
 #' measurement multiverse: [audit_plan()] -> [audit_run()] ->

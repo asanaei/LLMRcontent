@@ -1,12 +1,13 @@
 # coder_gold.R ------------------------------------------------------------------------
-# Gold sets carry split provenance and a sealed test split. "Sealed" is
-# honesty-by-visibility, not DRM: nothing stops an evaluation on the test
-# split, but every one of them is appended to a ledger that lives inside the
-# object (an environment, so appends survive without reassignment) and is
-# printed in every report. One look is a validation; five looks are visible
-# as five looks.
+# Gold sets carry split provenance and a sealed holdout split (named "test"
+# unless the caller chooses otherwise). "Sealed" is honesty-by-visibility,
+# not DRM: nothing stops an evaluation on the holdout split, but every one
+# of them is appended to a ledger that lives inside the object (an
+# environment, so appends survive without reassignment) and is printed in
+# every report. One look is a validation; five looks are visible as five
+# looks.
 
-#' Build a gold-standard set with split provenance and a sealed test split
+#' Build a gold-standard set with split provenance and a sealed holdout split
 #'
 #' @param data A data frame of human-labeled units. Gold labels must be
 #'   complete: a missing label is not gold, and construction fails on `NA`s.
@@ -17,15 +18,22 @@
 #'   largest remainder (exact, no rounding loss); assignment is random
 #'   within the allocation -- set a seed beforehand for a repeatable draw,
 #'   and keep the saved object either way, since the split is stored, not
-#'   recomputed.
+#'   recomputed. Split names are yours to choose; name the held-out one in
+#'   `holdout` when it is not `"test"`.
+#' @param holdout Name of the held-out split (character scalar, default
+#'   `"test"`). This is the split that [validate_protocol()] evaluates by
+#'   default, that [gold_correct()] audits, that [tune_protocol()] refuses,
+#'   and that the seal and the ledger act on. The name is stored on the
+#'   object, so downstream functions follow it without repetition.
 #' @param stratify If TRUE (default), the split is stratified by the label
-#'   column, so dev and test carry the same class composition -- the methods
+#'   column, so every split carries the same class composition -- the methods
 #'   default for evaluation splits.
-#' @param seal_test If TRUE (default), the test split is *sealed*:
-#'   every [validate_protocol()] run against it is recorded in the ledger
-#'   and printed by [coding_report()]. The seal is visibility, not
-#'   enforcement; save the gold set with the study and archive the LLM call
-#'   log (see the archive workflow) when tamper evidence is needed.
+#' @param seal_test If TRUE (default), the holdout split is *sealed*:
+#'   every [validate_protocol()] or [gold_correct()] run against it is
+#'   recorded in the ledger and printed by [coding_report()]. The seal is
+#'   visibility, not enforcement; save the gold set with the study and
+#'   archive the LLM call log (see the archive workflow) when tamper
+#'   evidence is needed.
 #' @param coders Optional character vector naming columns holding individual
 #'   coder labels (pre-adjudication), used by [coder_agreement()].
 #' @param id Optional name of a column holding a stable unit identifier. When
@@ -35,8 +43,8 @@
 #'   When omitted, linkage falls back to a content hash of the text, and
 #'   duplicate texts among audited units are refused rather than matched
 #'   arbitrarily.
-#' @return A `gold_set`: the data plus split assignment, seal status, and an
-#'   evaluation ledger.
+#' @return A `gold_set`: the data plus split assignment, the stored holdout
+#'   split name, seal status, and an evaluation ledger.
 #' @examples
 #' set.seed(110)   # the split assignment draws locally
 #' g <- gold_set(
@@ -46,12 +54,12 @@
 #' )
 #' g
 #' table(gold_split(g, "dev")$label)   # stratified: same class mix as test
-#' gold_ledger(g)   # empty until something evaluates on the test split
+#' gold_ledger(g)   # empty until something evaluates on the holdout split
 #' @seealso [validate_protocol()], [gold_ledger()], [coder_agreement()]
 #' @export
 gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
-                     stratify = TRUE, seal_test = TRUE, coders = NULL,
-                     id = NULL) {
+                     holdout = "test", stratify = TRUE, seal_test = TRUE,
+                     coders = NULL, id = NULL) {
   stopifnot(is.data.frame(data), nrow(data) >= 2L)
   for (col in c(text, labels, coders, id)) {
     if (!col %in% names(data)) abort(sprintf("Column '%s' not found in `data`.", col))
@@ -66,13 +74,19 @@ gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
   if (is.null(names(split)) || abs(sum(split) - 1) > 1e-8) {
     abort("`split` must be a named vector of proportions summing to 1.")
   }
-  # The seal, the ledger, and gold_correct() all address the split literally
-  # named "test"; a seal with no such split would be vacuous, so say so now.
-  if (isTRUE(seal_test) && !"test" %in% names(split)) {
-    cli::cli_warn(paste(
-      "`seal_test = TRUE` but no split is named 'test'; the seal, the ledger,",
-      "and gold_correct() all act on the split named 'test', so nothing will",
-      "be sealed or ledgered. Name one split 'test' (or set seal_test = FALSE)."))
+  if (!is.character(holdout) || length(holdout) != 1L || is.na(holdout) ||
+      !nzchar(holdout)) {
+    abort("`holdout` must be a single, non-empty split name.")
+  }
+  # The seal, the ledger, validate_protocol(), and gold_correct() all address
+  # the holdout split; a seal with no such split would be vacuous, so say so.
+  if (isTRUE(seal_test) && !holdout %in% names(split)) {
+    cli::cli_warn(paste0(
+      "`seal_test = TRUE` but no split is named '", holdout, "', the declared ",
+      "holdout; the seal, the ledger, validate_protocol(), and gold_correct() ",
+      "all act on the holdout split, so nothing will be sealed or ledgered. ",
+      "Name one split '", holdout, "', point `holdout` at an existing split, ",
+      "or set seal_test = FALSE."))
   }
   if (anyNA(data[[labels]])) {
     abort("Gold labels contain NA; a missing label is not gold. Adjudicate or drop those units first.")
@@ -87,23 +101,27 @@ gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
   } else {
     assignment <- sample(.alloc_split(n, split))
   }
-  n_test <- sum(assignment == "test")
-  if ("test" %in% names(split) && n_test < 20L) {
+  n_holdout <- sum(assignment == holdout)
+  if (holdout %in% names(split) && n_holdout < 20L) {
     cli::cli_warn(paste(
-      "The test split has only {n_test} unit(s); accuracy intervals will be",
-      "wide. gold_size() helps plan a defensible size."))
+      "The holdout split ('{holdout}') has only {n_holdout} unit(s); accuracy",
+      "intervals will be wide. gold_size() helps plan a defensible size."))
   }
   ledger <- new.env(parent = emptyenv())
   ledger$rows <- list()
   structure(
     list(data = data,
          text = text, labels = labels, coders = coders, id = id,
-         split = assignment, sealed = isTRUE(seal_test),
+         split = assignment, holdout = holdout, sealed = isTRUE(seal_test),
          ledger = ledger,
          created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")),
     class = "gold_set"
   )
 }
+
+# Internal: the holdout split name stored on a gold set ("test" for objects
+# saved before the name became configurable).
+.gold_holdout <- function(x) x$holdout %||% "test"
 
 # Internal: content hash of normalized text. Linkage that survives whitespace
 # and trivial preprocessing drift, and is explicit about what was matched.
@@ -129,9 +147,10 @@ gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
 #' @export
 print.gold_set <- function(x, ...) {
   tab <- table(x$split)
-  cat(sprintf("<gold_set | %d units | %s | test split %s | %d ledgered evaluation(s)>\n",
+  cat(sprintf("<gold_set | %d units | %s | holdout '%s' %s | %d ledgered evaluation(s)>\n",
               nrow(x$data),
               paste(sprintf("%s=%d", names(tab), as.integer(tab)), collapse = ", "),
+              .gold_holdout(x),
               if (x$sealed) "SEALED" else "unsealed",
               length(x$ledger$rows)))
   invisible(x)
@@ -152,13 +171,13 @@ gold_split <- function(x, split = "dev") {
 
 #' The evaluation ledger of a sealed gold set
 #'
-#' One row per evaluation that ever touched the sealed test split: when, by
-#' which protocol (hash), and with what headline result. Entries are
-#' appended automatically by [validate_protocol()] and printed in full by
-#' [coding_report()]. The mechanism is visibility, not enforcement -- an
-#' in-memory object cannot stop a determined user, and does not pretend to;
-#' archive the study's LLM call log (see the archive workflow) when tamper
-#' evidence is needed.
+#' One row per evaluation that ever touched the sealed holdout split: when,
+#' by which protocol (hash), and with what headline result. Entries are
+#' appended automatically by [validate_protocol()] and [gold_correct()] and
+#' printed in full by [coding_report()]. The mechanism is visibility, not
+#' enforcement -- an in-memory object cannot stop a determined user, and
+#' does not pretend to; archive the study's LLM call log (see the archive
+#' workflow) when tamper evidence is needed.
 #'
 #' @param x A [gold_set()].
 #' @return A tibble: `ts`, `split`, `protocol_hash`, `protocol_label`, `n`,

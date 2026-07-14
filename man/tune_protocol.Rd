@@ -11,8 +11,10 @@ tune_protocol(protocols, gold, split = "dev", .runner = NULL, ...)
 
 \item{gold}{A \code{\link[=gold_set]{gold_set()}}.}
 
-\item{split}{Which split to evaluate on; \code{"test"} is refused here. That
-is \code{\link[=validate_protocol]{validate_protocol()}}'s job, and it leaves a ledger entry.}
+\item{split}{Which split to evaluate on; the gold set's holdout split
+(\code{"test"} unless \code{\link[=gold_set]{gold_set()}} was given another \code{holdout} name) is
+refused here. That is \code{\link[=validate_protocol]{validate_protocol()}}'s job, and it leaves a
+ledger entry.}
 
 \item{.runner}{Internal seam for tests: a function \verb{(experiments, ...)}
 returning the experiments with a \code{response_text} column. Default
@@ -30,7 +32,7 @@ per-protocol detail in \code{attr(x, "per_category")}.
 Runs every protocol over the gold set's \code{split} rows (default \code{"dev"})
 and scores each against the gold labels: accuracy with a bootstrap CI,
 macro-F1, and parse failures. This is the tuning loop: iterate freely
-here; the test split waits, sealed, for the one protocol you lock.
+here; the holdout split waits, sealed, for the one protocol you lock.
 }
 \examples{
 \dontrun{

@@ -2,13 +2,14 @@
 % Please edit documentation in R/coder_gold.R
 \name{gold_set}
 \alias{gold_set}
-\title{Build a gold-standard set with split provenance and a sealed test split}
+\title{Build a gold-standard set with split provenance and a sealed holdout split}
 \usage{
 gold_set(
   data,
   text,
   labels,
   split = c(dev = 0.6, test = 0.4),
+  holdout = "test",
   stratify = TRUE,
   seal_test = TRUE,
   coders = NULL,
@@ -28,17 +29,25 @@ complete: a missing label is not gold, and construction fails on \code{NA}s.}
 largest remainder (exact, no rounding loss); assignment is random
 within the allocation -- set a seed beforehand for a repeatable draw,
 and keep the saved object either way, since the split is stored, not
-recomputed.}
+recomputed. Split names are yours to choose; name the held-out one in
+\code{holdout} when it is not \code{"test"}.}
+
+\item{holdout}{Name of the held-out split (character scalar, default
+\code{"test"}). This is the split that \code{\link[=validate_protocol]{validate_protocol()}} evaluates by
+default, that \code{\link[=gold_correct]{gold_correct()}} audits, that \code{\link[=tune_protocol]{tune_protocol()}} refuses,
+and that the seal and the ledger act on. The name is stored on the
+object, so downstream functions follow it without repetition.}
 
 \item{stratify}{If TRUE (default), the split is stratified by the label
-column, so dev and test carry the same class composition -- the methods
+column, so every split carries the same class composition -- the methods
 default for evaluation splits.}
 
-\item{seal_test}{If TRUE (default), the test split is \emph{sealed}:
-every \code{\link[=validate_protocol]{validate_protocol()}} run against it is recorded in the ledger
-and printed by \code{\link[=coding_report]{coding_report()}}. The seal is visibility, not
-enforcement; save the gold set with the study and archive the LLM call
-log (see the archive workflow) when tamper evidence is needed.}
+\item{seal_test}{If TRUE (default), the holdout split is \emph{sealed}:
+every \code{\link[=validate_protocol]{validate_protocol()}} or \code{\link[=gold_correct]{gold_correct()}} run against it is
+recorded in the ledger and printed by \code{\link[=coding_report]{coding_report()}}. The seal is
+visibility, not enforcement; save the gold set with the study and
+archive the LLM call log (see the archive workflow) when tamper
+evidence is needed.}
 
 \item{coders}{Optional character vector naming columns holding individual
 coder labels (pre-adjudication), used by \code{\link[=coder_agreement]{coder_agreement()}}.}
@@ -52,11 +61,11 @@ duplicate texts among audited units are refused rather than matched
 arbitrarily.}
 }
 \value{
-A \code{gold_set}: the data plus split assignment, seal status, and an
-evaluation ledger.
+A \code{gold_set}: the data plus split assignment, the stored holdout
+split name, seal status, and an evaluation ledger.
 }
 \description{
-Build a gold-standard set with split provenance and a sealed test split
+Build a gold-standard set with split provenance and a sealed holdout split
 }
 \examples{
 set.seed(110)   # the split assignment draws locally
@@ -67,7 +76,7 @@ g <- gold_set(
 )
 g
 table(gold_split(g, "dev")$label)   # stratified: same class mix as test
-gold_ledger(g)   # empty until something evaluates on the test split
+gold_ledger(g)   # empty until something evaluates on the holdout split
 }
 \seealso{
 \code{\link[=validate_protocol]{validate_protocol()}}, \code{\link[=gold_ledger]{gold_ledger()}}, \code{\link[=coder_agreement]{coder_agreement()}}
