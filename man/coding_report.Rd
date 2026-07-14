@@ -23,6 +23,6 @@ Assembles, from the objects themselves, the paragraph and tables that LLM
 annotation studies should report and rarely do: the instrument (codebook
 name, version, hash), the protocol (model, parameters, prompt hash), the
 validation result with its confidence interval, per-category performance,
-and the gold set's complete test-split ledger -- every evaluation that
+and the gold set's complete holdout-split ledger -- every evaluation that
 ever touched the sealed split, not just the flattering one.
 }

@@ -14,11 +14,11 @@ A tibble: \code{ts}, \code{split}, \code{protocol_hash}, \code{protocol_label}, 
 \code{accuracy}.
 }
 \description{
-One row per evaluation that ever touched the sealed test split: when, by
-which protocol (hash), and with what headline result. Entries are
-appended automatically by \code{\link[=validate_protocol]{validate_protocol()}} and printed in full by
-\code{\link[=coding_report]{coding_report()}}. The mechanism is visibility, not enforcement -- an
-in-memory object cannot stop a determined user, and does not pretend to;
-archive the study's LLM call log (see the archive workflow) when tamper
-evidence is needed.
+One row per evaluation that ever touched the sealed holdout split: when,
+by which protocol (hash), and with what headline result. Entries are
+appended automatically by \code{\link[=validate_protocol]{validate_protocol()}} and \code{\link[=gold_correct]{gold_correct()}} and
+printed in full by \code{\link[=coding_report]{coding_report()}}. The mechanism is visibility, not
+enforcement -- an in-memory object cannot stop a determined user, and
+does not pretend to; archive the study's LLM call log (see the archive
+workflow) when tamper evidence is needed.
 }

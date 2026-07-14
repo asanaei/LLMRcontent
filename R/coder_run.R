@@ -54,12 +54,14 @@
 #' Runs every protocol over the gold set's `split` rows (default `"dev"`)
 #' and scores each against the gold labels: accuracy with a bootstrap CI,
 #' macro-F1, and parse failures. This is the tuning loop: iterate freely
-#' here; the test split waits, sealed, for the one protocol you lock.
+#' here; the holdout split waits, sealed, for the one protocol you lock.
 #'
 #' @param protocols A list of [protocol()] objects (or a single one).
 #' @param gold A [gold_set()].
-#' @param split Which split to evaluate on; `"test"` is refused here. That
-#'   is [validate_protocol()]'s job, and it leaves a ledger entry.
+#' @param split Which split to evaluate on; the gold set's holdout split
+#'   (`"test"` unless [gold_set()] was given another `holdout` name) is
+#'   refused here. That is [validate_protocol()]'s job, and it leaves a
+#'   ledger entry.
 #' @param .runner Internal seam for tests: a function `(experiments, ...)`
 #'   returning the experiments with a `response_text` column. Default
 #'   `LLMR::call_llm_par()`.
@@ -92,9 +94,11 @@ tune_protocol <- function(protocols, gold, split = "dev",
       abort("`protocols` must be coding_protocol objects.")
     }
   }
-  if (identical(split, "test")) {
-    abort(paste("The test split is sealed for tuning.",
-                "Lock one protocol and run validate_protocol() once."))
+  if (identical(split, .gold_holdout(gold))) {
+    abort(sprintf(paste(
+      "The holdout split ('%s') is sealed for tuning.",
+      "Lock one protocol and run validate_protocol() once."),
+      .gold_holdout(gold)))
   }
   g <- gold_split(gold, split)
   texts <- g[[gold$text]]
@@ -157,22 +161,24 @@ as_tibble.protocol_tuning <- function(x, ...) {
   as.integer(sum(unlist(res[cols]), na.rm = TRUE))
 }
 
-#' Validate a locked protocol on the sealed test split
+#' Validate a locked protocol on the sealed holdout split
 #'
 #' The one honest evaluation. Requires a locked protocol (so the validated
-#' instrument is hash-identified), runs it over the test split, and when
+#' instrument is hash-identified), runs it over the holdout split, and when
 #' the gold set was built with `seal_test = TRUE` appends the event to the
-#' ledger, so every test-split evaluation that ever happened appears in
+#' ledger, so every holdout-split evaluation that ever happened appears in
 #' [coding_report()].
 #'
 #' @param protocol A **locked** [protocol()].
 #' @param gold A [gold_set()].
-#' @param split Default `"test"`.
+#' @param split Which split to evaluate on. Defaults to the gold set's
+#'   holdout split (`"test"` unless [gold_set()] was given another
+#'   `holdout` name).
 #' @inheritParams tune_protocol
 #' @return A `protocol_validation`: accuracy with bootstrap CI, macro-F1,
 #'   parse failures, total tokens (when the runner reported them),
-#'   per-category table, confusion matrix, the protocol hash, and the ledger
-#'   position of this evaluation.
+#'   per-category table, confusion matrix, the protocol hash, the gold
+#'   set's holdout split name, and the ledger position of this evaluation.
 #' @examples
 #' \dontrun{
 #' cb <- codebook("tone", "one sentence",
@@ -188,13 +194,17 @@ as_tibble.protocol_tuning <- function(x, ...) {
 #' gold_ledger(g)   # the evaluation is on the record
 #' }
 #' @export
-validate_protocol <- function(protocol, gold, split = "test",
+validate_protocol <- function(protocol, gold, split = NULL,
                               .runner = NULL, ...) {
   stopifnot(inherits(protocol, "coding_protocol"), inherits(gold, "gold_set"))
-  if (identical(split, "test") && !isTRUE(protocol$locked)) {
-    abort(paste("Refusing to evaluate an unlocked protocol on the test split.",
-                "Call protocol_lock() first; the hash ties the validation to",
-                "exactly this instrument."))
+  holdout <- .gold_holdout(gold)
+  split <- split %||% holdout
+  is_holdout <- identical(split, holdout)
+  if (is_holdout && !isTRUE(protocol$locked)) {
+    abort(sprintf(paste(
+      "Refusing to evaluate an unlocked protocol on the holdout split ('%s').",
+      "Call protocol_lock() first; the hash ties the validation to",
+      "exactly this instrument."), split))
   }
   g <- gold_split(gold, split)
   texts <- g[[gold$text]]
@@ -203,13 +213,13 @@ validate_protocol <- function(protocol, gold, split = "test",
   res <- res[order(res$unit_id), ]
   sc <- .score_labels(res$label, truth, codebook_labels(protocol$codebook))
   ci <- .acc_ci(res$label, truth)
-  if (identical(split, "test") && isTRUE(gold$sealed)) {
+  if (is_holdout && isTRUE(gold$sealed)) {
     .gold_ledger_append(gold, split, protocol$hash, protocol$label,
                         sc$n, sc$accuracy)
   }
   structure(
     list(protocol = protocol$label, protocol_hash = protocol$hash,
-         split = split, n = sc$n,
+         split = split, holdout = holdout, n = sc$n,
          accuracy = sc$accuracy, acc_lo = ci[1], acc_hi = ci[2],
          macro_f1 = sc$macro_f1, parse_failures = sc$parse_failures,
          tokens = .tokens_of(res),
@@ -225,8 +235,9 @@ print.protocol_validation <- function(x, ...) {
               x$protocol, x$split, x$n))
   cat(sprintf("  accuracy %.3f [%.3f, %.3f] | macro-F1 %.3f | parse failures %d\n",
               x$accuracy, x$acc_lo, x$acc_hi, x$macro_f1, x$parse_failures))
-  if (identical(x$split, "test")) {
-    cat(sprintf("  test-split evaluations ledgered so far: %d\n", x$ledger_entries))
+  if (identical(x$split, x$holdout %||% "test")) {
+    cat(sprintf("  %s-split evaluations ledgered so far: %d\n",
+                x$split, x$ledger_entries))
   }
   invisible(x)
 }

@@ -2,16 +2,18 @@
 % Please edit documentation in R/coder_run.R
 \name{validate_protocol}
 \alias{validate_protocol}
-\title{Validate a locked protocol on the sealed test split}
+\title{Validate a locked protocol on the sealed holdout split}
 \usage{
-validate_protocol(protocol, gold, split = "test", .runner = NULL, ...)
+validate_protocol(protocol, gold, split = NULL, .runner = NULL, ...)
 }
 \arguments{
 \item{protocol}{A \strong{locked} \code{\link[=protocol]{protocol()}}.}
 
 \item{gold}{A \code{\link[=gold_set]{gold_set()}}.}
 
-\item{split}{Default \code{"test"}.}
+\item{split}{Which split to evaluate on. Defaults to the gold set's
+holdout split (\code{"test"} unless \code{\link[=gold_set]{gold_set()}} was given another
+\code{holdout} name).}
 
 \item{.runner}{Internal seam for tests: a function \verb{(experiments, ...)}
 returning the experiments with a \code{response_text} column. Default
@@ -22,14 +24,14 @@ returning the experiments with a \code{response_text} column. Default
 \value{
 A \code{protocol_validation}: accuracy with bootstrap CI, macro-F1,
 parse failures, total tokens (when the runner reported them),
-per-category table, confusion matrix, the protocol hash, and the ledger
-position of this evaluation.
+per-category table, confusion matrix, the protocol hash, the gold
+set's holdout split name, and the ledger position of this evaluation.
 }
 \description{
 The one honest evaluation. Requires a locked protocol (so the validated
-instrument is hash-identified), runs it over the test split, and when
+instrument is hash-identified), runs it over the holdout split, and when
 the gold set was built with \code{seal_test = TRUE} appends the event to the
-ledger, so every test-split evaluation that ever happened appears in
+ledger, so every holdout-split evaluation that ever happened appears in
 \code{\link[=coding_report]{coding_report()}}.
 }
 \examples{

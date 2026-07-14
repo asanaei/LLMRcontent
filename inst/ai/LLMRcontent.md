@@ -34,8 +34,8 @@ below is what you generate code against.
 Use the coding surface when an LLM label becomes a variable in quantitative
 analysis. The canonical order is `gold_set()` -> `protocol_lock()` ->
 `validate_protocol()` -> `gold_correct()`: build a gold split, lock the
-codebook protocol, validate once on the sealed test split, code the corpus,
-and correct category prevalences with the audit. For accessible qualitative
+codebook protocol, validate once on the sealed holdout split, code the
+corpus, and correct category prevalences with the audit. For accessible qualitative
 coding use 'quallmer'; use this surface when the label feeds inference.
 
 ### Core API (exact signatures)
@@ -47,7 +47,8 @@ codebook(name, unit, categories, instructions = NULL, version = "1.0")
 codebook_labels(x); codebook_hash(x); format_codebook(x)
 
 gold_set(data, text, labels, split = c(dev = 0.6, test = 0.4),
-         stratify = TRUE, seal_test = TRUE, coders = NULL, id = NULL)
+         holdout = "test", stratify = TRUE, seal_test = TRUE,
+         coders = NULL, id = NULL)
 gold_split(x, split = "dev"); gold_ledger(x)
 gold_size(expected_agreement = 0.85, ci_width = 0.10, conf = 0.95,
           n_grid = c(50, 100, 200, 300, 500, 800), sims = 2000)
@@ -57,7 +58,8 @@ protocol(codebook, config, prompt = NULL, parser = parse_label(),
 protocol_lock(x)
 
 tune_protocol(protocols, gold, split = "dev", .runner = NULL, ...)
-validate_protocol(protocol, gold, split = "test", .runner = NULL, ...)
+validate_protocol(protocol, gold, split = NULL, .runner = NULL, ...)
+  # split = NULL means the gold set's holdout split ("test" by default)
 code_corpus(corpus, protocol, text, .runner = NULL, id = NULL, ...)
 
 gold_correct(coded, gold, conf = 0.95)
@@ -102,12 +104,13 @@ tibble::as_tibble(correction)
 
 ### Coding rules
 
-- Tune on `split = "dev"` only; `tune_protocol(..., split = "test")` is refused.
-- Lock before the test split or the corpus; `validate_protocol()` and
+- Tune on `split = "dev"` only; tuning on the gold set's holdout split
+  (named at creation via `holdout =`, `"test"` by default) is refused.
+- Lock before the holdout split or the corpus; `validate_protocol()` and
   `code_corpus()` refuse unlocked protocols.
 - Do not edit prompt, parser, model, parameters, or replicates after
   validation. That voids the hash; re-lock and re-validate instead.
-- Every test-split evaluation lands in `gold_ledger()` and prints in the
+- Every holdout-split evaluation lands in `gold_ledger()` and prints in the
   report.
 - Parse failures (`NA` labels) count as errors; never silently drop them.
 - `temperature = 0` for annotation unless replicate variability is the object.
@@ -118,15 +121,15 @@ tibble::as_tibble(correction)
 ### Coding error meanings
 
 - "Refusing to evaluate an unlocked protocol" means call `protocol_lock()` first.
-- "The test split is sealed for tuning" means tune on dev; validate once.
+- "The holdout split (...) is sealed for tuning" means tune on dev; validate once.
 - "Gold labels contain NA" means adjudicate or drop those rows before `gold_set()`.
 - "must contain the {text} placeholder" means fix the prompt template.
 - Many `NA` labels in output means model replies do not match
   `codebook_labels()`; tighten the prompt's final instruction or the parser.
-- "No test-split gold units matched the coded corpus" means `gold_correct()`
-  links gold units to corpus rows by a shared `id` when both carry one, and
-  by a hash of the text otherwise; either way the audited units must be
-  part of the coded corpus.
+- "No gold units from the holdout split (...) matched the coded corpus" means
+  `gold_correct()` links gold units to corpus rows by a shared `id` when both
+  carry one, and by a hash of the text otherwise; either way the audited
+  units must be part of the coded corpus.
 
 ## Robustness audits
 
