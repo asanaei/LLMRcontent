@@ -99,6 +99,12 @@ test_that("gold_correct audits and ledgers the named holdout end to end", {
              ifelse(is_a, "A", "B"))
     experiments
   }
+
+  validation <- validate_protocol(pl, gold, .runner = fake)
+  expect_identical(validation$split, "holdout")
+  expect_equal(validation$accuracy, 34 / 40)
+  expect_equal(nrow(gold_ledger(gold)), 1L)
+
   coded <- code_corpus(corpus, pl, "text", .runner = fake)
 
   res <- gold_correct(coded, gold)
@@ -112,7 +118,7 @@ test_that("gold_correct audits and ledgers the named holdout end to end", {
   expect_output(print(res), "holdout split \\('holdout'\\)")
 
   led <- gold_ledger(gold)
-  expect_equal(nrow(led), 1L)
-  expect_identical(led$split, "holdout")
-  expect_equal(led$accuracy, 34 / 40)
+  expect_equal(nrow(led), 2L)
+  expect_identical(led$split, rep("holdout", 2L))
+  expect_equal(led$accuracy, rep(34 / 40, 2L))
 })
