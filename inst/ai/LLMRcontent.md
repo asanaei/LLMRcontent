@@ -6,7 +6,7 @@ description: LLM-assisted content analysis for the social sciences in R, built o
 # LLMRcontent usage capsule for AI assistants
 
 This file is the compact manual: enough to use the package correctly
-without reading every help page. `vignette("design", package =
+without reading every help page. `vignette("getting-started", package =
 "LLMRcontent")` goes deeper.
 
 LLMRcontent merges three former packages into one workflow. Coding (once
@@ -35,8 +35,9 @@ Use the coding surface when an LLM label becomes a variable in quantitative
 analysis. The canonical order is `gold_set()` -> `protocol_lock()` ->
 `validate_protocol()` -> `gold_correct()`: build a gold split, lock the
 codebook protocol, validate once on the sealed holdout split, code the
-corpus, and correct category prevalences with the audit. For accessible qualitative
-coding use 'quallmer'; use this surface when the label feeds inference.
+corpus, and correct category prevalences with the audit. LLMRcontent treats
+model labels as measured variables for label-as-variable inference with error
+correction, distinct from tooling for accessible qualitative coding.
 
 ### Core API (exact signatures)
 
