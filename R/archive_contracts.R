@@ -1,8 +1,8 @@
 # archive_contracts.R -----------------------------------------------------------
 # Offline replay and live spot-checking of archived calls. The replay key is the
-# call's full request hash (LLMR::llm_request_hash): a logged record carries it
-# in the manifest, and an experiments row recomputes the same value from its
-# config and messages, so the two sides match by construction.
+# call's full request hash (LLMR::llm_request_hash), derived from the stored raw
+# record; an experiments row recomputes the same value from its config and
+# messages, so the two sides match by construction.
 
 #' Replay archived responses offline
 #'
@@ -67,18 +67,15 @@ archive_replay <- function(archive, replay_mode = c("queue", "first", "strict_on
     abort("A redacted archive has no content to replay.")
   }
 
-  # The replay key IS the request hash: LLMR::llm_request_hash() identifies a
-  # call by its canonical turns and generation parameters, and llm_log_read()
-  # already stored exactly that value in the manifest for every record. So the
-  # log side reads the key straight from the manifest, and the config side (the
-  # runner below) recomputes the same hash from the experiment's config and
-  # messages -- one function, no separate replay-key scheme to drift.
+  # Derive both the record and its request hash from the stored raw line. The
+  # seal binds that line through record_hash, while the parsed-record cache and
+  # manifest request_hash are conveniences outside the seal.
   entries <- list()
   keys <- character(0)
   for (i in seq_along(archive$records)) {
-    rec <- archive$records[[i]]$rec
+    rec <- .archive_record_from_raw(archive$records[[i]])
     if (!.archive_replayable(rec)) next
-    key <- as.character(archive$manifest$request_hash[i] %||% NA_character_)
+    key <- .archive_request_hash_from_record(rec)
     if (is.na(key)) next
     entries[[length(entries) + 1L]] <- list(idx = i, rec = rec, request_hash = key)
     keys <- c(keys, key)
@@ -356,6 +353,17 @@ print.archive_drift <- function(x, ...) {
 
 .archive_replayable <- function(rec) {
   identical(rec$kind, "call") && !is.null(rec$request) && !is.null(rec$text)
+}
+
+.archive_record_from_raw <- function(record) {
+  jsonlite::fromJSON(record$raw, simplifyVector = FALSE)
+}
+
+.archive_request_hash_from_record <- function(rec) {
+  if (is.null(rec[["request"]])) return(NA_character_)
+  req <- LLMR::llm_request_from_log(rec, on_unsupported = "quiet")
+  if (!isTRUE(req$complete) || !length(req$messages)) return(NA_character_)
+  LLMR::llm_request_hash(config = req$config, messages = req$messages)
 }
 
 .archive_group_key <- function(x, cols) {

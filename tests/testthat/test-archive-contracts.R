@@ -52,6 +52,49 @@ test_that("archive_replay returns the LLMR runner shape without changing the glu
   expect_true(all(out$success))
 })
 
+test_that("sealed replay and checks derive from raw records", {
+  a <- archive_seal(fix_contract_archive())
+  experiments <- tibble::tibble(
+    config = list(
+      LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0),
+      LLMR::llm_config("openai", "gpt-4o-mini", temperature = 0)
+    ),
+    messages = list(
+      c(user = "Label: positive?"),
+      c(user = "Label: negative?")
+    )
+  )
+  expected <- c("positive", "negative")
+
+  expect_identical(archive_replay(a)(experiments)$response_text, expected)
+
+  manifest_tamper <- a
+  manifest_tamper$manifest$request_hash[1] <-
+    manifest_tamper$manifest$request_hash[2]
+  checked <- archive_check(manifest_tamper)
+  expect_true(checked$intact)
+  expect_true(checked$root_ok)
+  expect_length(checked$duplicate_request_hashes, 0L)
+  expect_identical(
+    archive_replay(manifest_tamper)(experiments)$response_text,
+    expected
+  )
+
+  cache_tamper <- a
+  cache_tamper$records[[1]]$rec <- list(
+    kind = "call", request = list(), text = "tampered",
+    response_id = "r-2"
+  )
+  checked <- archive_check(cache_tamper,
+                           results = data.frame(response_id = "r-1"))
+  expect_true(checked$intact)
+  expect_true(checked$root_ok)
+  expect_length(checked$duplicate_response_ids, 0L)
+  expect_equal(checked$n_matched, 1L)
+  expect_identical(archive_replay(cache_tamper)(experiments)$response_text,
+                   expected)
+})
+
 test_that("archive_replay reports unmatched calls through the runner output", {
   replay <- archive_replay(fix_contract_archive())
   experiments <- tibble::tibble(

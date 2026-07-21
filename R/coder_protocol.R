@@ -30,7 +30,8 @@ parse_label <- function() {
 #'   so braces in the coded text itself are safe.
 #' @param parser A function `(text, labels) -> label` turning a model reply
 #'   into one of the codebook's labels (or `NA`). Default [parse_label()].
-#' @param replicates How many times each unit is coded by [code_corpus()]
+#' @param replicates How many times each unit is coded before its modal label is
+#'   used by [tune_protocol()], [validate_protocol()], and [code_corpus()]
 #'   (replicates make model self-disagreement measurable; see
 #'   [coder_agreement()]).
 #' @param label Optional human-readable tag used in tournaments and reports
@@ -71,16 +72,28 @@ protocol <- function(codebook, config, prompt = NULL, parser = parse_label(),
   )
 }
 
+.protocol_hash <- function(x) {
+  .hash(list(
+    codebook = codebook_hash(x$codebook),
+    prompt = x$prompt,
+    provider = x$config$provider,
+    model = x$config$model,
+    params = x$config$model_params,
+    replicates = x$replicates,
+    parser = x$parser
+  ))
+}
+
 #' Lock a protocol
 #'
-#' Computes the protocol's content hash -- over the codebook, the prompt
+#' Computes and stores the protocol's content hash -- over the codebook, the prompt
 #' template, the provider, model, all model parameters, the replicate count,
 #' **and the parser** (by its deparsed source; the parser decides the final
-#' label, so it is part of the instrument) -- and freezes it.
+#' label, so it is part of the instrument).
 #' [validate_protocol()] on the sealed split and [code_corpus()] both require
-#' a locked protocol, so the validated instrument and the deployed instrument
-#' are the same object, verifiably. Hashes use `LLMR::llm_hash()`, the
-#' ecosystem-wide convention.
+#' a locked protocol and verify its current content against the stored hash,
+#' so the validated instrument and the deployed instrument are the same object,
+#' verifiably. Hashes use `LLMR::llm_hash()`, the ecosystem-wide convention.
 #'
 #' @param x A [protocol()].
 #' @return The protocol, locked, with `$hash` set.
@@ -93,15 +106,7 @@ protocol <- function(codebook, config, prompt = NULL, parser = parse_label(),
 #' @export
 protocol_lock <- function(x) {
   stopifnot(inherits(x, "coding_protocol"))
-  x$hash <- .hash(list(
-    codebook = codebook_hash(x$codebook),
-    prompt = x$prompt,
-    provider = x$config$provider,
-    model = x$config$model,
-    params = x$config$model_params,
-    replicates = x$replicates,
-    parser = x$parser
-  ))
+  x$hash <- .protocol_hash(x)
   x$locked <- TRUE
   x
 }

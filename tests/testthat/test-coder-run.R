@@ -52,6 +52,54 @@ test_that("validation requires a lock on test and writes the ledger", {
   expect_output(print(v2), "ledgered so far: 2")
 })
 
+test_that("locked protocols refuse changes at validation and coding gates", {
+  g <- fix_gold(8)
+  pl <- protocol_lock(protocol(fix_codebook(), fix_config(), label = "fixed"))
+  corpus <- data.frame(text = "great work")
+
+  expect_s3_class(validate_protocol(pl, g, .runner = fake_runner_perfect),
+                  "protocol_validation")
+  expect_s3_class(code_corpus(corpus, pl, "text",
+                              .runner = fake_runner_perfect),
+                  "tbl_df")
+
+  changed <- pl
+  changed$prompt <- paste(changed$prompt, "Changed after locking.")
+  expect_error(validate_protocol(changed, g, .runner = fake_runner_perfect),
+               "changed since protocol_lock")
+  expect_error(code_corpus(corpus, changed, "text",
+                           .runner = fake_runner_perfect),
+               "changed since protocol_lock")
+})
+
+test_that("validation applies the modal rule across protocol replicates", {
+  g <- fix_gold(8)
+  pl <- protocol_lock(protocol(fix_codebook(), fix_config(),
+                               replicates = 3L))
+  batch <- 0L
+  calls <- 0L
+  scripted <- function(experiments, ...) {
+    batch <<- batch + 1L
+    calls <<- calls + nrow(experiments)
+    positive <- grepl("great|lovely|wonderful|fine", experiments$text)
+    truth <- ifelse(positive, "positive", "negative")
+    experiments$response_text <- if (batch == 1L) {
+      ifelse(truth == "positive", "negative", "positive")
+    } else {
+      truth
+    }
+    experiments$sent_tokens <- 10L
+    experiments$rec_tokens <- 2L
+    experiments
+  }
+
+  v <- validate_protocol(pl, g, .runner = scripted)
+  expect_equal(v$accuracy, 1)
+  expect_equal(batch, 3L)
+  expect_equal(calls, 3L * v$n)
+  expect_equal(v$tokens, calls * 12L)
+})
+
 test_that("seal_test = FALSE means no ledger entries", {
   g <- fix_gold(8, seal_test = FALSE)
   expect_output(print(g), "unsealed")

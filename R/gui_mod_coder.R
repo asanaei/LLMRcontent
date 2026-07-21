@@ -406,11 +406,11 @@ mod_coder_server <- function(id, shared) {
       NROW(as_display_table(out))
     })
 
-    # tune_protocol() codes each dev unit once per protocol; replicates apply
-    # only to code_corpus(), so they do not enter this count.
+    # Tuning applies each candidate's configured replicate count.
     shiny::observe({
       if (identical(step(), 4L) && !is.null(protocols())) {
-        shared$set_plan(length(protocols()) * dev_units(), "Tuning on dev split")
+        reps <- sum(vapply(protocols(), `[[`, integer(1), "replicates"))
+        shared$set_plan(reps * dev_units(), "Tuning on dev split")
       }
     })
 
@@ -422,7 +422,8 @@ mod_coder_server <- function(id, shared) {
         return()
       }
 
-      planned <- length(protocols()) * dev_units()
+      reps <- sum(vapply(protocols(), `[[`, integer(1), "replicates"))
+      planned <- reps * dev_units()
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
 
       res <- safe_llmr_call(
@@ -501,10 +502,11 @@ mod_coder_server <- function(id, shared) {
       DT::datatable(as_display_table(ledger), options = list(scrollX = TRUE, pageLength = 5))
     })
 
-    # validate_protocol() codes each test unit once; no replicate factor.
+    # Validation applies the locked protocol's configured replicate count.
     shiny::observe({
       if (identical(step(), 5L) && !is.null(locked_protocol())) {
-        shared$set_plan(test_units(), "Validation on sealed test split")
+        reps <- locked_protocol()$replicates
+        shared$set_plan(reps * test_units(), "Validation on sealed test split")
       }
     })
 
@@ -526,7 +528,7 @@ mod_coder_server <- function(id, shared) {
         return()
       }
 
-      planned <- test_units()
+      planned <- locked_protocol()$replicates * test_units()
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
 
       res <- safe_llmr_call(

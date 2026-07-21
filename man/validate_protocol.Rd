@@ -29,10 +29,10 @@ set's holdout split name, and the ledger position of this evaluation.
 }
 \description{
 The one honest evaluation. Requires a locked protocol (so the validated
-instrument is hash-identified), runs it over the holdout split, and when
-the gold set was built with \code{seal_test = TRUE} appends the event to the
-ledger, so every holdout-split evaluation that ever happened appears in
-\code{\link[=coding_report]{coding_report()}}.
+instrument is hash-identified), applies its configured replicate count and
+modal-label rule over the holdout split, and when the gold set was built with
+\code{seal_test = TRUE} appends the event to the ledger, so every holdout-split
+evaluation that ever happened appears in \code{\link[=coding_report]{coding_report()}}.
 }
 \examples{
 \dontrun{

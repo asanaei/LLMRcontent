@@ -30,9 +30,10 @@ per-protocol detail in \code{attr(x, "per_category")}.
 }
 \description{
 Runs every protocol over the gold set's \code{split} rows (default \code{"dev"})
-and scores each against the gold labels: accuracy with a bootstrap CI,
-macro-F1, and parse failures. This is the tuning loop: iterate freely
-here; the holdout split waits, sealed, for the one protocol you lock.
+and scores each protocol's modal label across its configured replicates
+against the gold labels: accuracy with a bootstrap CI, macro-F1, and parse
+failures. This is the tuning loop: iterate freely here; the holdout split
+waits, sealed, for the one protocol you lock.
 }
 \examples{
 \dontrun{

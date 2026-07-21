@@ -153,11 +153,15 @@ archive_check <- function(archive, results = NULL) {
   # repeated. Duplicates in either are a sign of a malformed or merged log and
   # undermine the response_id -> call mapping used for completeness, so surface
   # them.
-  logged_ids <- vapply(archive$records, function(r)
-    as.character(r$rec$response_id %||% NA_character_), character(1))
+  records <- lapply(seq_along(archive$records), function(i) {
+    if (i %in% bad) return(NULL)
+    .archive_record_from_raw(archive$records[[i]])
+  })
+  logged_ids <- vapply(records, function(r)
+    as.character(r$response_id %||% NA_character_), character(1))
   id_present <- logged_ids[!is.na(logged_ids)]
   dup_response_ids <- unique(id_present[duplicated(id_present)])
-  rh <- archive$manifest$request_hash
+  rh <- vapply(records, .archive_request_hash_from_record, character(1))
   rh_present <- rh[!is.na(rh)]
   dup_request_hashes <- unique(rh_present[duplicated(rh_present)])
 

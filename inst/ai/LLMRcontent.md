@@ -111,6 +111,8 @@ tibble::as_tibble(correction)
   `code_corpus()` always requires a locked protocol.
 - If the prompt, parser, model, parameters, or replicate count changes, lock
   and validate the revised protocol.
+- Tuning, validation, and corpus coding use the protocol's replicate count and
+  take the modal parsed label for each unit.
 - Evaluations of a sealed holdout split are appended to `gold_ledger()` and
   included in the coding report.
 - Validation counts `NA` labels as errors. `gold_correct()` reports parse
@@ -320,10 +322,10 @@ retains call counts, models, parameters, timings, and token totals.
 - The horizon's open-weight classification is a name heuristic; pass
   `open_patterns` when you serve something unusual.
 - `archive_replay()` matches calls by the request hash from
-  `LLMR::llm_request_hash()`. The hash covers provider, model, canonical message
-  content, and generation parameters. Repeated requests are served in archived
-  order. Records without message content are excluded, and redacted archives
-  cannot be replayed.
+  `LLMR::llm_request_hash()`, rebuilt from each stored raw log line. The hash
+  covers provider, model, canonical message content, and generation parameters.
+  Repeated requests are served in archived order. Records without message
+  content are excluded, and redacted archives cannot be replayed.
 - `archive_verify()` re-issues real calls; the `.runner` argument is the
   offline test seam. Exact reproduction is expected only for
   temperature-0 calls on pinned open-weight backends.

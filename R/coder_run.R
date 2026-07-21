@@ -2,8 +2,8 @@
 # Execution: protocols meet data. The entry points build an experiments tibble
 # (config + messages, one row per unit x protocol) and hand it to a runner, by
 # default LLMR::call_llm_par(), so tests can inject a fake runner and the whole
-# layer stays offline-testable. Replicates are not a column here: code_corpus()
-# runs the table once per replicate and stamps the replicate id onto the results.
+# layer stays offline-testable. The shared execution helper runs one table per
+# replicate and reduces each protocol-unit group to its modal label.
 
 # Internal: experiments tibble for a set of protocols over texts.
 .build_experiments <- function(protocols, texts) {
@@ -32,13 +32,20 @@
   LLMR::call_llm_par(experiments, ...)
 }
 
-# Internal: run protocols over texts and return parsed label matrix rows:
-# (protocol_id, unit_id, label_raw, label).
+# Internal: code each protocol-unit group with the protocol's replicate rule and
+# return one row carrying its modal label and replicate details.
 .run_protocols <- function(protocols, texts, .runner = NULL, ...) {
   runner <- .runner %||% .default_runner
   exps <- .build_experiments(protocols, texts)
-  res <- runner(exps, ...)
-  stopifnot(is.data.frame(res), all(c("response_text") %in% names(res)))
+  k <- vapply(protocols, `[[`, integer(1), "replicates")
+  res <- lapply(seq_len(max(k)), function(r) {
+    pass <- exps[exps$protocol_id %in% which(k >= r), , drop = FALSE]
+    out <- runner(pass, ...)
+    stopifnot(is.data.frame(out), "response_text" %in% names(out))
+    out$replicate <- r
+    out
+  })
+  res <- do.call(rbind, res)
   labels_of <- function(p) codebook_labels(protocols[[p]]$codebook)
   res$label <- vapply(seq_len(nrow(res)), function(i) {
     pr <- protocols[[res$protocol_id[i]]]
@@ -46,15 +53,41 @@
                      labels_of(res$protocol_id[i]))
     as.character(out %||% NA_character_)
   }, character(1))
-  res
+
+  token_cols <- intersect(c("sent_tokens", "rec_tokens"), names(res))
+  rows <- list()
+  for (p in seq_along(protocols)) {
+    for (i in seq_along(texts)) {
+      ri <- res[res$protocol_id == p & res$unit_id == i, , drop = FALSE]
+      ri <- ri[order(ri$replicate), , drop = FALSE]
+      labels <- ri$label
+      present <- labels[!is.na(labels)]
+      modal <- if (!length(present)) NA_character_ else {
+        names(sort(table(present), decreasing = TRUE))[1]
+      }
+      row <- tibble::tibble(
+        protocol_id = p,
+        unit_id = i,
+        label = modal,
+        label_share = if (!length(present)) NA_real_ else
+          mean(labels == modal, na.rm = TRUE),
+        parse_failures = sum(is.na(labels)),
+        replicate_labels = list(labels)
+      )
+      for (col in token_cols) row[[col]] <- sum(ri[[col]], na.rm = TRUE)
+      rows[[length(rows) + 1L]] <- row
+    }
+  }
+  do.call(rbind, rows)
 }
 
 #' Tune candidate protocols on the development split
 #'
 #' Runs every protocol over the gold set's `split` rows (default `"dev"`)
-#' and scores each against the gold labels: accuracy with a bootstrap CI,
-#' macro-F1, and parse failures. This is the tuning loop: iterate freely
-#' here; the holdout split waits, sealed, for the one protocol you lock.
+#' and scores each protocol's modal label across its configured replicates
+#' against the gold labels: accuracy with a bootstrap CI, macro-F1, and parse
+#' failures. This is the tuning loop: iterate freely here; the holdout split
+#' waits, sealed, for the one protocol you lock.
 #'
 #' @param protocols A list of [protocol()] objects (or a single one).
 #' @param gold A [gold_set()].
@@ -164,10 +197,10 @@ as_tibble.protocol_tuning <- function(x, ...) {
 #' Validate a locked protocol on the sealed holdout split
 #'
 #' The one honest evaluation. Requires a locked protocol (so the validated
-#' instrument is hash-identified), runs it over the holdout split, and when
-#' the gold set was built with `seal_test = TRUE` appends the event to the
-#' ledger, so every holdout-split evaluation that ever happened appears in
-#' [coding_report()].
+#' instrument is hash-identified), applies its configured replicate count and
+#' modal-label rule over the holdout split, and when the gold set was built with
+#' `seal_test = TRUE` appends the event to the ledger, so every holdout-split
+#' evaluation that ever happened appears in [coding_report()].
 #'
 #' @param protocol A **locked** [protocol()].
 #' @param gold A [gold_set()].
@@ -205,6 +238,10 @@ validate_protocol <- function(protocol, gold, split = NULL,
       "Refusing to evaluate an unlocked protocol on the holdout split ('%s').",
       "Call protocol_lock() first; the hash ties the validation to",
       "exactly this instrument."), split))
+  }
+  if (isTRUE(protocol$locked) &&
+      !identical(protocol$hash, .protocol_hash(protocol))) {
+    abort("The locked protocol has changed since protocol_lock(); lock it again before validation.")
   }
   g <- gold_split(gold, split)
   texts <- g[[gold$text]]
@@ -342,32 +379,22 @@ code_corpus <- function(corpus, protocol, text, .runner = NULL, id = NULL, ...) 
   if (!isTRUE(protocol$locked)) {
     abort("code_corpus() requires a locked protocol (protocol_lock()).")
   }
+  if (!identical(protocol$hash, .protocol_hash(protocol))) {
+    abort("The locked protocol has changed since protocol_lock(); lock it again before coding.")
+  }
   if (!text %in% names(corpus)) abort(sprintf("Column '%s' not found.", text))
   if (!is.null(id) && !id %in% names(corpus)) {
     abort(sprintf("`id` column '%s' not found in `corpus`.", id))
   }
   texts <- corpus[[text]]
   k <- protocol$replicates
-  reps <- lapply(seq_len(k), function(r) {
-    res <- .run_protocols(list(protocol), texts, .runner = .runner, ...)
-    res$label[order(res$unit_id)]
-  })
-  m <- do.call(cbind, reps)
-  modal <- apply(m, 1L, function(v) {
-    v <- v[!is.na(v)]
-    if (!length(v)) return(NA_character_)
-    tt <- sort(table(v), decreasing = TRUE)
-    names(tt)[1]
-  })
-  share <- vapply(seq_len(nrow(m)), function(i) {
-    v <- m[i, ]
-    if (all(is.na(v))) return(NA_real_)
-    mean(v == modal[i], na.rm = TRUE)
-  }, numeric(1))
+  res <- .run_protocols(list(protocol), texts, .runner = .runner, ...)
+  res <- res[order(res$unit_id), , drop = FALSE]
+  m <- do.call(rbind, res$replicate_labels)
   out <- tibble::as_tibble(corpus)
-  out$label <- modal
-  out$label_share <- share
-  out$parse_failures <- apply(m, 1L, function(v) sum(is.na(v)))
+  out$label <- res$label
+  out$label_share <- res$label_share
+  out$parse_failures <- res$parse_failures
   if (k > 1L) {
     for (r in seq_len(k)) out[[paste0("label_rep", r)]] <- m[, r]
   }
