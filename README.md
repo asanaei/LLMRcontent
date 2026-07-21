@@ -6,16 +6,16 @@
 [![Website](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://asanaei.github.io/LLMRcontent/)
 <!-- badges: end -->
 
-LLM-assisted content analysis for the social sciences, built on
-[LLMR](https://github.com/asanaei/LLMR). It links three stages of one workflow:
-coding, robustness audits, and replication archives. When a text label becomes a
-variable in quantitative analysis, the package documents the measurement error
-and the conditions under which an estimate changes.
+LLMRcontent uses large language models to code text for quantitative analysis.
+Coding functions define and validate protocols. Audit functions recompute
+estimates under specified coding choices. Archive functions preserve
+[LLMR](https://github.com/asanaei/LLMR) call logs for checking and replay.
 
 ## The three workflows
 
-**Coding** turns a codebook and a sealed gold standard into error-corrected
-category prevalences:
+**Coding** evaluates a locked protocol against held-out human labels and applies
+it to a corpus. `gold_correct()` uses matched holdout errors to estimate
+corrected category prevalences:
 
 ```r
 g <- gold_set(data, text = "text", labels = "label")        # sealed test split
@@ -25,9 +25,9 @@ coded <- code_corpus(corpus, p, "text")                     # apply to the full 
 gc <- gold_correct(coded, g)                                # corrected prevalences + SEs
 ```
 
-**Robustness audits** ask whether a coded conclusion holds across the
-measurement multiverse: the prompts, models, label orders, and temperatures a
-defensible coding could have used.
+**Robustness audits** recompute an estimator for each selected prompt, model,
+label order, and temperature. `audit_stability()` and `audit_fragility()`
+summarize how the estimates change:
 
 ```r
 plan <- audit_plan(data, "text", estimator, labels, prompt)
@@ -38,8 +38,8 @@ a <- audit_run(plan)
 audit_stability(a); audit_fragility(a)                      # sign, rank, fragility
 ```
 
-**Archives** turn the audit log that LLMR writes into a replication record a
-reviewer can rerun:
+**Archives** store LLMR audit logs for checking and replay. `archive_build()`
+reads a log into an archive that can be sealed and checked:
 
 ```r
 ar <- archive_build(log)                                    # content-addressed
@@ -48,29 +48,27 @@ archive_check(ar)                                           # integrity + comple
 replay <- archive_replay(ar)                                # recompute offline, no keys
 ```
 
-The shared generics `LLMR::diagnostics()`, `LLMR::report()`, and
-`tibble::as_tibble()` dispatch across all three families of result objects.
+`LLMR::diagnostics()` returns machine-readable summaries for validation,
+correction, audit, and archive objects. `LLMR::report()` creates draft reports
+for validation, audit, and archive objects. `tibble::as_tibble()` extracts
+tabular results.
 
-## Point-and-click
+## Shiny interface
 
-The same three workflows run from a Shiny GUI, for collaborators who prefer a
-graphical interface:
+`run_content_studio()` provides a Shiny interface to the three workflows:
 
 ```r
 install_gui_deps()        # shiny, bslib, DT, ggplot2, and the LLMR.shiny substrate
 run_content_studio()      # coding, robustness audit, and archive tabs
 ```
 
-The GUI wraps the package API rather than reimplementing it, reads provider keys
-from environment variables only, and has a deterministic demo mode that runs
-offline.
+Live runs read provider keys from environment variables. Demo mode uses an
+offline runner.
 
 ## Scope
 
-For accessible qualitative coding use `quallmer`; use LLMRcontent when the label
-becomes a variable in quantitative analysis. A coding result is a measurement
-with known error, an audit is a fragility statement, and an archive is a
-verifiable record -- none of them a claim of truth.
+`quallmer` supports qualitative coding. LLMRcontent is intended for analyses
+that use model labels as variables in quantitative estimates.
 
 ## Install
 

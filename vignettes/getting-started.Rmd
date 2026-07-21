@@ -150,9 +150,9 @@ coded <- code_corpus(
 head(coded[c("id", "label")])
 ```
 
-The correction combines the full set of model labels with model-gold
-differences in the sealed audit sample. Its standard errors describe uncertainty
-in that estimated correction.
+`gold_correct()` compares the model and human labels in the holdout sample.
+It uses those differences to correct corpus category shares and calculate their
+standard errors.
 
 ```{r}
 corrected <- gold_correct(coded, gold)
@@ -160,8 +160,9 @@ corrected <- gold_correct(coded, gold)
 tibble::as_tibble(corrected)
 ```
 
-The shared report generic reads the validation object, locked protocol, and
-complete holdout ledger. The ledger now contains the validation and correction.
+`LLMR::report()` combines the validation result with the locked protocol and
+gold set. The report includes the holdout ledger, which now records the
+validation and correction.
 
 ```{r}
 methods <- LLMR::report(
@@ -213,9 +214,8 @@ audit_stability(audit)
 audit_fragility(audit)
 ```
 
-The injected runner does not create provider audit records. Two synthetic
-LLMR-compatible records stand in for a live study log and exercise the archive
-contract without a provider call.
+The offline runner writes no LLMR audit records. The next example creates two
+records in the format read by `archive_build()`.
 
 ```{r}
 log_path <- tempfile(fileext = ".jsonl")
@@ -283,8 +283,9 @@ archive_check(
 )
 ```
 
-Archives are plain-text records plus a manifest. Writing and reading the
-archive leaves its seal available for a fresh integrity check and report.
+`archive_write()` stores the records and manifest in a directory. After
+`archive_read()`, `archive_check()` verifies the copy and `LLMR::report()`
+summarizes it.
 
 ```{r}
 archive_dir <- tempfile("offline-study-")

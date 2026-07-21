@@ -6,38 +6,35 @@
 \alias{LLMRcontent-package}
 \title{LLMRcontent: LLM-assisted content analysis for the social sciences}
 \description{
-A validated workflow for content analysis with large language models, built
-on 'LLMR'. Three connected concerns, one package.
+LLMRcontent is used to conduct content analysis with labels returned by
+large language models. It uses 'LLMR' for model configuration, execution,
+and audit logs.
 }
 \details{
-\strong{Coding} turns a codebook and a sealed gold standard into
-error-corrected category prevalences: \code{\link[=gold_set]{gold_set()}} -> \code{\link[=protocol_lock]{protocol_lock()}} ->
-\code{\link[=validate_protocol]{validate_protocol()}} -> \code{\link[=gold_correct]{gold_correct()}}. A sealed gold split audits the
-instrument, a content hash identifies the locked codebook protocol, and
-\code{\link[=gold_correct]{gold_correct()}} carries remaining label error into corrected corpus-level
-prevalences with standard errors. LLMRcontent treats model labels as measured
-variables for label-as-variable inference with error correction, distinct
-from tooling for accessible qualitative coding.
+\code{\link[=codebook]{codebook()}} defines the categories and coding rules. \code{\link[=protocol]{protocol()}} combines
+the codebook with a prompt, model configuration, and parser, and
+\code{\link[=protocol_lock]{protocol_lock()}} records a content hash for that specification. \code{\link[=gold_set]{gold_set()}}
+stores human-labeled units and their development and holdout assignments.
+\code{\link[=validate_protocol]{validate_protocol()}} compares model labels with holdout labels.
+\code{\link[=code_corpus]{code_corpus()}} applies the protocol to a corpus, and \code{\link[=gold_correct]{gold_correct()}}
+estimates category prevalences and their standard errors from the coded
+corpus and holdout data.
 
-\strong{Robustness audits} ask whether a coded conclusion survives the
-measurement multiverse: \code{\link[=audit_plan]{audit_plan()}} -> \code{\link[=audit_run]{audit_run()}} ->
-\code{\link[=audit_stability]{audit_stability()}} / \code{\link[=audit_fragility]{audit_fragility()}}. The deliverable is the distribution
-of estimates and the smallest measurement change that flips the conclusion,
-not a blessing. Perturbation robustness is not construct validity; pair it
-with the gold-set validation above.
+\code{\link[=audit_plan]{audit_plan()}} defines an estimator and a grid of coding specifications.
+\code{\link[=audit_run]{audit_run()}} codes the data and recomputes the estimator for each grid cell.
+\code{\link[=audit_stability]{audit_stability()}} summarizes the resulting estimates, and
+\code{\link[=audit_fragility]{audit_fragility()}} counts the specification changes needed to cross a
+stated conclusion rule.
 
-\strong{Archives} turn the audit log that LLMR writes
-(\code{LLMR::llm_log_enable()}) into a reviewer-runnable replication record:
-\code{\link[=archive_build]{archive_build()}} -> \code{\link[=archive_seal]{archive_seal()}} -> \code{\link[=archive_check]{archive_check()}}, with
-\code{\link[=archive_redact]{archive_redact()}} for IRB-restricted text and \code{\link[=archive_replay]{archive_replay()}} for offline
-recomputation.
+\code{\link[=archive_build]{archive_build()}} reads an 'LLMR' JSONL audit log into records and a manifest.
+\code{\link[=archive_seal]{archive_seal()}} computes a root hash, and \code{\link[=archive_check]{archive_check()}} verifies the
+stored record hashes. \code{\link[=archive_replay]{archive_replay()}} returns stored responses for offline
+recomputation. \code{\link[=archive_redact]{archive_redact()}} removes prompts and response text while
+retaining the archive's hash records.
 
-The shared generics \code{\link[LLMR:diagnostics]{LLMR::diagnostics()}}, \code{\link[LLMR:report]{LLMR::report()}}, and
-\code{\link[tibble:as_tibble]{tibble::as_tibble()}} dispatch across the result objects of all three.
-
-An optional Shiny GUI drives the same workflow interactively. Install its
-extra dependencies with \code{\link[=install_gui_deps]{install_gui_deps()}}, then launch it with
-\code{\link[=run_content_studio]{run_content_studio()}}.
+The optional Shiny interface runs these functions interactively. Use
+\code{\link[=install_gui_deps]{install_gui_deps()}} to install its suggested packages and
+\code{\link[=run_content_studio]{run_content_studio()}} to start it.
 }
 \seealso{
 Useful links:

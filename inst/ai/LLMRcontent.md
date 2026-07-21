@@ -1,22 +1,24 @@
 ---
 name: llmrcontent
-description: LLM-assisted content analysis for the social sciences in R, built on LLMR. One package, three connected concerns. Coding turns a codebook and a sealed gold split into error-corrected category prevalences validated against held-out human labels, with locked protocols and development-split tuning. Robustness audits recompute the reported estimate across the measurement multiverse of prompts, model families, label order, and temperature, with stability metrics, spec curves, and a fragility index. Archives turn the LLMR audit log of a study into a content-addressed, sealed, reviewer-runnable replication record with completeness linting, IRB-grade redaction, and a verifiability horizon.
+description: >-
+  LLMRcontent codes text with language models for quantitative content analysis.
+  It validates coding protocols against held-out human labels and estimates
+  corrected category prevalences. It recomputes an estimator under alternative
+  coding specifications. It stores LLMR call logs for checks and offline replay.
 ---
 
-# LLMRcontent usage capsule for AI assistants
+# LLMRcontent usage reference
 
-This file is the compact manual: enough to use the package correctly
-without reading every help page. `vignette("getting-started", package =
-"LLMRcontent")` goes deeper.
+This reference lists the main workflows, object contracts, and common errors.
+See `vignette("getting-started", package = "LLMRcontent")` for a complete
+offline example.
 
-LLMRcontent merges three former packages into one workflow. Coding (once
-`LLMRcoder`) makes an LLM label a trustworthy variable; robustness audits
-(once `LLMRvalid`) ask whether the conclusion drawn from that variable
-survives the measurement multiverse; archives (once `LLMRarchive`) turn the
-study's call log into a verifiable replication record. The three sections
-below share one offline seam (`.runner`) and one LLMR foundation, so a study
-can run coding, audit the result, and archive the whole thing without
-leaving the package.
+LLMRcontent provides three related workflows. The coding workflow defines and
+validates a protocol before applying it to a corpus. The audit workflow
+recomputes an estimator under alternative prompts, models, label orders, and
+temperatures. The archive workflow stores LLMR call records and supports
+integrity checks and offline replay. The execution functions use the same
+`.runner` contract.
 
 ## Install
 
@@ -24,20 +26,18 @@ leaving the package.
 remotes::install_github("asanaei/LLMRcontent")   # depends on LLMR (>= 0.8.6)
 ```
 
-An optional Shiny GUI ships with the package. Install its extra
-dependencies with `install_gui_deps()`, then launch it with
-`run_content_studio()`. The GUI is for interactive exploration; the API
-below is what you generate code against.
+The optional Shiny interface calls the same package functions. Install its
+dependencies with `install_gui_deps()`, then start it with
+`run_content_studio()`. Use the functions below in scripts.
 
 ## Coding
 
-Use the coding surface when an LLM label becomes a variable in quantitative
-analysis. The canonical order is `gold_set()` -> `protocol_lock()` ->
-`validate_protocol()` -> `gold_correct()`: build a gold split, lock the
-codebook protocol, validate once on the sealed holdout split, code the
-corpus, and correct category prevalences with the audit. LLMRcontent treats
-model labels as measured variables for label-as-variable inference with error
-correction, distinct from tooling for accessible qualitative coding.
+The coding workflow estimates category prevalences from model labels.
+`gold_set()` divides human-labeled units into development and holdout splits.
+Use `tune_protocol()` on the development split when comparing protocols, lock
+the selected protocol with `protocol_lock()`, and evaluate it with
+`validate_protocol()`. Then apply it with `code_corpus()` and pass the result
+to `gold_correct()` to estimate corrected prevalences and standard errors.
 
 ### Core API (exact signatures)
 
@@ -90,9 +90,9 @@ ps  <- list(protocol(cb, cfg, label = "base"),
             protocol(cb, cfg, prompt = "{codebook}\n\n{text}\nLabel:",
                      label = "terse"))
 
-tuning <- tune_protocol(ps, gold)        # tune freely; dev split only
+tuning <- tune_protocol(ps, gold)        # compare protocols on the dev split
 winner <- protocol_lock(ps[[1]])         # hash covers prompt+model+params+parser
-v <- validate_protocol(winner, gold)     # one honest test-split evaluation
+v <- validate_protocol(winner, gold)     # evaluate on the test split
 coded <- code_corpus(big_df, winner, "text")
 correction <- gold_correct(coded, gold)  # corrected prevalences with SEs
 
@@ -105,16 +105,18 @@ tibble::as_tibble(correction)
 
 ### Coding rules
 
-- Tune on `split = "dev"` only; tuning on the gold set's holdout split
-  (named at creation via `holdout =`, `"test"` by default) is refused.
-- Lock before the holdout split or the corpus; `validate_protocol()` and
-  `code_corpus()` refuse unlocked protocols.
-- Do not edit prompt, parser, model, parameters, or replicates after
-  validation. That voids the hash; re-lock and re-validate instead.
-- Every holdout-split evaluation lands in `gold_ledger()` and prints in the
-  report.
-- Parse failures (`NA` labels) count as errors; never silently drop them.
-- `temperature = 0` for annotation unless replicate variability is the object.
+- `tune_protocol()` refuses the split named by `holdout`; use the development
+  split for protocol comparisons.
+- `validate_protocol()` requires a locked protocol on the holdout split, and
+  `code_corpus()` always requires a locked protocol.
+- If the prompt, parser, model, parameters, or replicate count changes, lock
+  and validate the revised protocol.
+- Evaluations of a sealed holdout split are appended to `gold_ledger()` and
+  included in the coding report.
+- Validation counts `NA` labels as errors. `gold_correct()` reports parse
+  failures and conditions prevalence estimates on parsed corpus labels.
+- Set `temperature = 0` for deterministic annotation. Use replicates when the
+  analysis concerns variation across model responses.
 - Custom prompts must contain `{text}`; `{codebook}` inserts `format_codebook()`.
 - `LLMR::report()` on a `protocol_validation` needs `gold =` and
   `protocol =` so it can delegate to `coding_report()`.
@@ -122,7 +124,8 @@ tibble::as_tibble(correction)
 ### Coding error meanings
 
 - "Refusing to evaluate an unlocked protocol" means call `protocol_lock()` first.
-- "The holdout split (...) is sealed for tuning" means tune on dev; validate once.
+- "The holdout split (...) is sealed for tuning" means tune on the development
+  split and use `validate_protocol()` for the holdout.
 - "Gold labels contain NA" means adjudicate or drop those rows before `gold_set()`.
 - "must contain the {text} placeholder" means fix the prompt template.
 - Many `NA` labels in output means model replies do not match
@@ -134,12 +137,12 @@ tibble::as_tibble(correction)
 
 ## Robustness audits
 
-A validated coding result is a measurement; the audit asks whether the
-conclusion drawn from it survives the measurement multiverse. It recomputes
-the reported estimate across prompts, model families, label order, and
-temperature, then reports stability, a spec curve, and a fragility index.
-Honest prompt improvement is tuning and belongs in the coding tournament
-above, before the audit.
+`audit_plan()` defines the data, estimator, labels, and baseline prompt. Add
+model configurations, prompt variants, label orders, and temperatures to the
+plan, then call `audit_run()`. The result contains one estimate per grid cell.
+`audit_stability()` summarizes their distribution, and `audit_fragility()`
+counts how many grid dimensions separate the reference cell from the nearest
+cell that changes the stated conclusion.
 
 ### Core API (exact signatures)
 
@@ -165,11 +168,11 @@ tibble::as_tibble(audit)
 
 ### Estimator contract
 
-`estimator` is a function receiving `data` with one added character column
-`label` and returning ONE number -- whatever the paper reports.
-`label` MAY CONTAIN `NA` (parse failures): the estimator must decide their
-meaning explicitly. If the estimator errors in a cell, that cell's estimate
-is `NA` and is counted; the grid does not abort.
+`estimator` receives `data` with one added character column, `label`, and must
+return one numeric value. The `label` column may contain `NA` for parse
+failures, so the estimator must define how to handle them. If the estimator
+errors in a cell, that cell receives `estimate = NA`; the remaining cells are
+still computed.
 
 ### Canonical workflow
 
@@ -202,23 +205,24 @@ LLMR::report(audit)
 
 ### Audit rules
 
-- Cell 1 (baseline prompt, first model, "as_given", first temperature) is
-  the reference; order your inputs accordingly.
-- Model FAMILIES, not sizes of one family -- same-family agreement is
-  family resemblance, not robustness.
-- Prompt variants must be honest paraphrases; improving the prompt is
-  tuning and belongs in the coding tournament above, before the audit.
+- Cell 1 uses the baseline prompt, first model, `"as_given"` label order, and
+  first temperature. The summary functions use it as the default reference.
+- Include more than one model family when the analysis concerns sensitivity
+  to the choice of model family.
+- Prompt variants should pose the same coding task. Develop the prompt before
+  constructing the audit grid.
 - `sign_flip()` flags nothing when the reference estimate is exactly 0
   (no sign to flip); use `threshold_flip(at =)` there and for one-sided
   or bounded estimands.
-- `audit_fragility() == Inf` is a statement about THIS grid, not a
-  robustness guarantee; the report says so verbatim.
+- `audit_fragility() == Inf` means that no cell in the specified grid meets
+  the selected flip rule.
 - `audit_placebo(type = "label_permutation")` flags pure-marginal estimands
   as `degenerate` with `p = NA`; that flag is the correct output, not a
   failure. `type = "irrelevant_text"` needs researcher-supplied
   construct-free `texts` and re-runs the grid (costs calls unless a
   `.runner` is injected). Set a seed before either for reproducibility.
-- No "passed" verdicts exist anywhere; report the distribution.
+- Report the cell estimates together with the stability and fragility
+  summaries.
 
 ### Audit error meanings
 
@@ -230,14 +234,16 @@ LLMR::report(audit)
 
 ## Archives
 
-Once a study has run its coding and audit, the archive turns the LLMR call
-log into a verifiable replication record: content-addressed records, a
-sealed root, completeness linting, IRB-grade redaction, and a verifiability
-horizon.
+`archive_build()` reads an LLMR JSONL log and stores its records and manifest.
+`archive_seal()` adds a root hash, `archive_check()` checks stored record hashes
+and result identifiers, and `archive_replay()` returns a runner that serves
+stored responses. `archive_redact()` removes prompts and replies when those
+texts cannot be distributed.
 
 ### Precondition
 
-The substrate is LLMR's audit log. Before the study:
+Enable the LLMR audit log before the first model call and disable it after the
+last call:
 
 ```r
 LLMR::llm_log_enable("study.jsonl")    # every call recorded; schema_version pinned
@@ -284,18 +290,16 @@ archive_check(b)                        # reading and verifying are separate act
 replay <- archive_replay(b)             # pass as `.runner =` to recompute offline
 ```
 
-The replayer is a `.runner`: pass it as `.runner =` to any execution
-function in the package (`code_corpus()` for coding, `audit_run()` for the
-audit), where it replaces the live LLMR runner, and the original study
-recomputes from the archive with no keys and no spending.
+The object returned by `archive_replay()` follows the `.runner` contract. Pass
+it to `code_corpus()` or `audit_run()` through `.runner =` to use stored
+responses instead of making provider calls.
 
-### Redaction semantics (two hash families, by design)
+### Redacted archives
 
-`archive_redact()` removes prompts and replies. The ORIGINAL record hashes
-and seal root stay in the manifest (attestable by whoever holds the
-unredacted archive, e.g. under IRB terms); per-record PUBLIC hashes are
-added so the redacted artifact passes its own `archive_check()`. Counts,
-models, parameters, timings, token totals all remain public.
+`archive_redact()` removes prompts and replies. Original record hashes and the
+seal root remain in the manifest. A public hash is added for each redacted
+record so `archive_check()` can check the distributed files. The manifest
+retains call counts, models, parameters, timings, and token totals.
 
 ### Archive generic surface
 
@@ -307,20 +311,19 @@ models, parameters, timings, token totals all remain public.
 
 ### Archive rules
 
-- Seal before depositing or citing; an unsealed archive has no root.
-- Never edit `records.jsonl` by hand; any edit is what `archive_check()`
-  exists to catch.
-- Completeness: keep `response_id` in results frames (LLMR's
-  `call_llm_par()` provides it, and `audit_units()` carries it) so every
-  reported number maps to a logged call.
+- Seal an archive before depositing it or citing its root.
+- Do not edit `records.jsonl`; use `archive_check()` to compare its lines with
+  the stored hashes.
+- Keep `response_id` in result frames. `call_llm_par()` provides it and
+  `audit_units()` carries it, allowing `archive_check()` to match result rows
+  to logged calls.
 - The horizon's open-weight classification is a name heuristic; pass
   `open_patterns` when you serve something unusual.
-- `archive_replay()` matches a call by its full request hash
-  (`LLMR::llm_request_hash()`): provider, model, canonical message content, and
-  the generation parameters (temperature and the rest), so the same prompt at
-  two temperatures does not collide. It serves repeated identical requests in
-  archived order and excludes records logged without message content. It refuses
-  a redacted archive (no content to replay).
+- `archive_replay()` matches calls by the request hash from
+  `LLMR::llm_request_hash()`. The hash covers provider, model, canonical message
+  content, and generation parameters. Repeated requests are served in archived
+  order. Records without message content are excluded, and redacted archives
+  cannot be replayed.
 - `archive_verify()` re-issues real calls; the `.runner` argument is the
   offline test seam. Exact reproduction is expected only for
   temperature-0 calls on pinned open-weight backends.
@@ -336,11 +339,11 @@ models, parameters, timings, token totals all remain public.
 
 ## Offline seam (tests, vignettes, dry runs)
 
-All three surfaces share one seam. `.runner` replaces the network: it
-receives an `experiments` tibble (`config` list-column, `messages`
-list-column of named character vectors) and must return it with a
-`response_text` column; `sent_tokens`/`rec_tokens` are kept as cost columns
-when present, and `response_id` is carried through when supplied.
+Execution functions accept a `.runner` in place of the default provider call.
+The runner receives an `experiments` tibble with `config` and `messages` list
+columns. It must return that data with a `response_text` column. Token columns
+are retained when present, and supplied `response_id` values remain available
+to functions that keep the unit-level call records.
 
 ```r
 deterministic_coder <- function(experiments, ...) {
@@ -353,6 +356,5 @@ tune_protocol(ps, gold, .runner = deterministic_coder)
 audit_run(plan, .runner = deterministic_coder)
 ```
 
-The archive replayer from `archive_replay()` is the natural production
-`.runner`: it answers coding and audit calls from a sealed archive instead
-of a stub.
+`archive_replay()` supplies a runner for recomputing coding and audit results
+from stored responses.

@@ -2,14 +2,16 @@
 
 Initial CRAN release.
 
-- Codebook-first coding validated against a sealed gold standard, with
-  error-corrected category prevalences: `gold_set()`, `protocol_lock()`,
-  `validate_protocol()`, `code_corpus()`, `gold_correct()`.
-- Measurement-multiverse robustness audits across prompts, models, label
-  orders, and temperatures, with stability and fragility summaries:
-  `audit_plan()`, `audit_run()`, `audit_stability()`, `audit_fragility()`.
-- Content-addressed, sealed replication archives built from LLMR audit logs,
-  with offline replay and integrity checks: `archive_build()`,
-  `archive_seal()`, `archive_check()`, `archive_replay()`.
-- Optional Shiny GUI (`run_content_studio()`) running the same workflow
-  interactively; every GUI dependency is a guarded Suggests.
+- `gold_set()` creates development and holdout splits from human-coded data.
+  `protocol_lock()` identifies the protocol evaluated by `validate_protocol()`
+  and applied by `code_corpus()`. `gold_correct()` estimates category
+  prevalences and standard errors from matched holdout errors.
+- `audit_plan()` defines a grid of prompts, models, label orders, and
+  temperatures. `audit_run()` evaluates the estimator across the grid.
+  `audit_stability()` and `audit_fragility()` summarize the estimates and
+  conclusion flips.
+- `archive_build()` reads LLMR audit logs into archives. Archives can be sealed,
+  checked, and replayed with `archive_seal()`, `archive_check()`, and
+  `archive_replay()`.
+- `run_content_studio()` provides an optional Shiny interface. Its dependencies
+  are listed in `Suggests`.

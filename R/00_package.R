@@ -5,37 +5,34 @@
 
 #' LLMRcontent: LLM-assisted content analysis for the social sciences
 #'
-#' A validated workflow for content analysis with large language models, built
-#' on 'LLMR'. Three connected concerns, one package.
+#' LLMRcontent is used to conduct content analysis with labels returned by
+#' large language models. It uses 'LLMR' for model configuration, execution,
+#' and audit logs.
 #'
-#' \strong{Coding} turns a codebook and a sealed gold standard into
-#' error-corrected category prevalences: [gold_set()] -> [protocol_lock()] ->
-#' [validate_protocol()] -> [gold_correct()]. A sealed gold split audits the
-#' instrument, a content hash identifies the locked codebook protocol, and
-#' [gold_correct()] carries remaining label error into corrected corpus-level
-#' prevalences with standard errors. LLMRcontent treats model labels as measured
-#' variables for label-as-variable inference with error correction, distinct
-#' from tooling for accessible qualitative coding.
+#' [codebook()] defines the categories and coding rules. [protocol()] combines
+#' the codebook with a prompt, model configuration, and parser, and
+#' [protocol_lock()] records a content hash for that specification. [gold_set()]
+#' stores human-labeled units and their development and holdout assignments.
+#' [validate_protocol()] compares model labels with holdout labels.
+#' [code_corpus()] applies the protocol to a corpus, and [gold_correct()]
+#' estimates category prevalences and their standard errors from the coded
+#' corpus and holdout data.
 #'
-#' \strong{Robustness audits} ask whether a coded conclusion survives the
-#' measurement multiverse: [audit_plan()] -> [audit_run()] ->
-#' [audit_stability()] / [audit_fragility()]. The deliverable is the distribution
-#' of estimates and the smallest measurement change that flips the conclusion,
-#' not a blessing. Perturbation robustness is not construct validity; pair it
-#' with the gold-set validation above.
+#' [audit_plan()] defines an estimator and a grid of coding specifications.
+#' [audit_run()] codes the data and recomputes the estimator for each grid cell.
+#' [audit_stability()] summarizes the resulting estimates, and
+#' [audit_fragility()] counts the specification changes needed to cross a
+#' stated conclusion rule.
 #'
-#' \strong{Archives} turn the audit log that LLMR writes
-#' (`LLMR::llm_log_enable()`) into a reviewer-runnable replication record:
-#' [archive_build()] -> [archive_seal()] -> [archive_check()], with
-#' [archive_redact()] for IRB-restricted text and [archive_replay()] for offline
-#' recomputation.
+#' [archive_build()] reads an 'LLMR' JSONL audit log into records and a manifest.
+#' [archive_seal()] computes a root hash, and [archive_check()] verifies the
+#' stored record hashes. [archive_replay()] returns stored responses for offline
+#' recomputation. [archive_redact()] removes prompts and response text while
+#' retaining the archive's hash records.
 #'
-#' The shared generics [LLMR::diagnostics()], [LLMR::report()], and
-#' [tibble::as_tibble()] dispatch across the result objects of all three.
-#'
-#' An optional Shiny GUI drives the same workflow interactively. Install its
-#' extra dependencies with [install_gui_deps()], then launch it with
-#' [run_content_studio()].
+#' The optional Shiny interface runs these functions interactively. Use
+#' [install_gui_deps()] to install its suggested packages and
+#' [run_content_studio()] to start it.
 #'
 #' @keywords internal
 #' @importFrom rlang %||% abort
