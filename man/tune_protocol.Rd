@@ -16,17 +16,17 @@ tune_protocol(protocols, gold, split = "dev", .runner = NULL, ...)
 refused here. That is \code{\link[=validate_protocol]{validate_protocol()}}'s job, and it leaves a
 ledger entry.}
 
-\item{.runner}{Internal seam for tests: a function \verb{(experiments, ...)}
-returning the experiments with a \code{response_text} column. Default
-\code{LLMR::call_llm_par()}.}
+\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
+receives a data frame with \code{config} and \code{messages} list-columns and returns
+those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par()}.}
 
 \item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
 }
 \value{
-A \code{protocol_tuning} result: tibble with one row per protocol
-(\code{protocol}, \code{n}, \code{accuracy}, \code{acc_lo}, \code{acc_hi}, \code{macro_f1},
-\code{parse_failures}, \code{tokens} when the runner reports usage), plus
-per-protocol detail in \code{attr(x, "per_category")}.
+A \code{protocol_tuning} object with \code{table} (one row per protocol:
+\code{protocol}, \code{n}, \code{accuracy}, \code{acc_lo}, \code{acc_hi}, \code{macro_f1},
+\code{parse_failures}, and \code{tokens}), \code{per_category} (named per-protocol
+detail), and \code{split}.
 }
 \description{
 Runs every protocol over the gold set's \code{split} rows (default \code{"dev"})
@@ -43,7 +43,7 @@ cb <- codebook("tone", "one sentence",
 gold_data <- data.frame(
   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
   label = rep(c("positive", "negative"), each = 10))
-g  <- gold_set(gold_data, text = "text", labels = "label",
+g  <- gold_set(gold_data, text = "text", label = "label",
                split = c(dev = 0.5, test = 0.5))
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
 tune_protocol(list(protocol(cb, cfg, label = "baseline")), g)

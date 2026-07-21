@@ -9,7 +9,7 @@
 \arguments{
 \item{x}{An \code{archive}.}
 
-\item{...}{Passed to \code{\link[=archive_appendix]{archive_appendix()}}.}
+\item{...}{Passed to report construction, such as \code{open_patterns}.}
 }
 \value{
 Character lines of class \code{archive_appendix}.

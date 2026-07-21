@@ -9,23 +9,24 @@ audit_run(plan, .runner = NULL, ...)
 \arguments{
 \item{plan}{An \code{\link[=audit_plan]{audit_plan()}} with at least one model.}
 
-\item{.runner}{Internal seam for tests: \verb{function(experiments, ...)}
-returning the experiments with a \code{response_text} column. Default
-\code{LLMR::call_llm_par()}.}
+\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
+receives a data frame with \code{config} and \code{messages} list-columns and returns
+those rows with at least \code{response_text}. When it returns a \code{success}
+column, every row must be successful. Default \code{LLMR::call_llm_par()}.}
 
 \item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
 }
 \value{
-An \code{audit}: a tibble with one row per cell -- \code{cell},
-\code{prompt}, \code{model}, \code{label_order}, \code{temperature}, \code{estimate},
-\code{parse_failures}, \code{tokens} (when the runner reports usage) -- with the
-plan and the unit-level table (see \code{\link[=audit_units]{audit_units()}}) as attributes.
-Estimator errors inside a cell yield \code{estimate = NA} for that cell.
+An \code{audit} object with \code{cells} (one row per grid cell), \code{units}
+(the unit-level trail; see \code{\link[=audit_units]{audit_units()}}), and \code{plan}. The \code{cells}
+table contains \code{cell}, \code{prompt}, \code{model}, \code{label_order}, \code{temperature},
+\code{estimate}, \code{parse_failures}, and \code{tokens}. Estimator errors inside a
+cell yield \code{estimate = NA} for that cell.
 }
 \description{
 Crosses prompts x models x label orders x temperatures, measures every
 unit under every cell, recomputes the estimator per cell, and returns the
-audit frame the stability functions consume. Cell 1 -- baseline prompt,
+audit object the stability functions consume. Cell 1 -- baseline prompt,
 first model, \code{"as_given"}, first temperature -- is the reference for
 \code{\link[=audit_fragility]{audit_fragility()}}.
 }

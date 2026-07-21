@@ -30,7 +30,7 @@ partisanship estimand, say). Choosing them is a research decision the
 package cannot make for you. The vector is recycled deterministically
 (\code{rep_len()}) to the number of units.}
 
-\item{.runner}{Internal seam for tests, passed to \code{\link[=audit_run]{audit_run()}} for the
+\item{.runner}{Offline runner seam, passed to \code{\link[=audit_run]{audit_run()}} for the
 irrelevant-text rerun.}
 
 \item{...}{Passed to \code{\link[=audit_run]{audit_run()}} for the irrelevant-text rerun.}

@@ -68,8 +68,8 @@ test_that("irrelevant_text returns real and placebo estimates per cell", {
                       texts = c("The forecast is cloudy.", "Winds are calm."),
                       .runner = fake_placebo_runner)
   expect_s3_class(pt, "audit_placebo")
-  expect_equal(nrow(pt$cells), nrow(audit))
-  expect_equal(pt$cells$estimate, audit$estimate)
+  expect_equal(nrow(pt$cells), nrow(audit$cells))
+  expect_equal(pt$cells$estimate, audit$cells$estimate)
   expect_equal(pt$cells$estimate_placebo, 0)
   expect_equal(pt$cells$parse_failures_placebo, 0L)
   expect_true(is.na(pt$reps))

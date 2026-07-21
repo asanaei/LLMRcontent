@@ -125,7 +125,7 @@ mod_archive_server <- function(id, shared) {
 
     output$horizon <- shiny::renderPrint({
       shiny::req(archive())
-      safe_print(LLMRcontent::verifiability_horizon(archive()))
+      safe_print(verifiability_horizon(archive()))
     })
 
     output$replay <- shiny::renderPrint({

@@ -57,24 +57,24 @@ audit_plan <- function(data, text, estimator, labels, prompt) {
 #' Add the model arm of the grid
 #'
 #' @param plan An [audit_plan()].
-#' @param configs A named list of `LLMR::llm_config()` objects. Spanning
+#' @param config A named list of `LLMR::llm_config()` objects. Spanning
 #'   model *families* (not just sizes of one family) is what makes the arm
 #'   informative; agreement within one family is family resemblance, not
 #'   robustness.
 #' @return The plan, extended.
 #' @export
-audit_add_models <- function(plan, configs) {
-  stopifnot(inherits(plan, "audit_plan"), is.list(configs),
-            length(configs) >= 1L)
-  if (is.null(names(configs)) || any(!nzchar(names(configs)))) {
-    abort("`configs` must be a *named* list (names appear in the report).")
+audit_add_models <- function(plan, config) {
+  stopifnot(inherits(plan, "audit_plan"), is.list(config),
+            length(config) >= 1L)
+  if (is.null(names(config)) || any(!nzchar(names(config)))) {
+    abort("`config` must be a *named* list (names appear in the report).")
   }
-  for (cf in configs) {
+  for (cf in config) {
     if (!inherits(cf, "llm_config")) {
-      abort("Every element of `configs` must be an LLMR::llm_config().")
+      abort("Every element of `config` must be an LLMR::llm_config().")
     }
   }
-  plan$models <- c(plan$models, configs)
+  plan$models <- c(plan$models, config)
   plan
 }
 

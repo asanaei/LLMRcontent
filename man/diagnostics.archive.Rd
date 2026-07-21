@@ -9,7 +9,7 @@
 \arguments{
 \item{x}{An \code{archive}.}
 
-\item{...}{Passed to \code{\link[=verifiability_horizon]{verifiability_horizon()}}, such as \code{open_patterns}.}
+\item{...}{Passed to the model-horizon classifier, such as \code{open_patterns}.}
 }
 \value{
 A one-row tibble with record count, seal state, root, redaction

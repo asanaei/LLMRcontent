@@ -41,7 +41,27 @@
   res <- lapply(seq_len(max(k)), function(r) {
     pass <- exps[exps$protocol_id %in% which(k >= r), , drop = FALSE]
     out <- runner(pass, ...)
-    stopifnot(is.data.frame(out), "response_text" %in% names(out))
+    required <- c(names(pass), "response_text")
+    if (!is.data.frame(out) || !all(required %in% names(out)) ||
+        nrow(out) != nrow(pass)) {
+      abort("`.runner` must return the experiment rows with a `response_text` column.")
+    }
+    expected_key <- paste(pass$protocol_id, pass$unit_id, sep = "\r")
+    result_key <- paste(out$protocol_id, out$unit_id, sep = "\r")
+    if (anyNA(out$protocol_id) || anyNA(out$unit_id) ||
+        anyDuplicated(result_key) || !setequal(result_key, expected_key)) {
+      abort("`.runner` must preserve experiment row identity.")
+    }
+    out <- out[match(expected_key, result_key), , drop = FALSE]
+    if ("success" %in% names(out) && any(!out$success %in% TRUE)) {
+      n_failed <- sum(!out$success %in% TRUE)
+      abort(sprintf("`.runner` reported failure for %d experiment row(s).",
+                    n_failed))
+    }
+    if (anyNA(out$response_text)) {
+      abort(sprintf("`.runner` returned a missing response for %d experiment row(s).",
+                    sum(is.na(out$response_text))))
+    }
     out$replicate <- r
     out
   })
@@ -95,14 +115,14 @@
 #'   (`"test"` unless [gold_set()] was given another `holdout` name) is
 #'   refused here. That is [validate_protocol()]'s job, and it leaves a
 #'   ledger entry.
-#' @param .runner Internal seam for tests: a function `(experiments, ...)`
-#'   returning the experiments with a `response_text` column. Default
-#'   `LLMR::call_llm_par()`.
+#' @param .runner Offline runner seam: a function `(experiments, ...)` that
+#'   receives a data frame with `config` and `messages` list-columns and returns
+#'   those rows with at least `response_text`. Default `LLMR::call_llm_par()`.
 #' @param ... Passed to the runner (e.g. `tries`, `progress`).
-#' @return A `protocol_tuning` result: tibble with one row per protocol
-#'   (`protocol`, `n`, `accuracy`, `acc_lo`, `acc_hi`, `macro_f1`,
-#'   `parse_failures`, `tokens` when the runner reports usage), plus
-#'   per-protocol detail in `attr(x, "per_category")`.
+#' @return A `protocol_tuning` object with `table` (one row per protocol:
+#'   `protocol`, `n`, `accuracy`, `acc_lo`, `acc_hi`, `macro_f1`,
+#'   `parse_failures`, and `tokens`), `per_category` (named per-protocol
+#'   detail), and `split`.
 #' @examples
 #' \dontrun{
 #' cb <- codebook("tone", "one sentence",
@@ -111,7 +131,7 @@
 #' gold_data <- data.frame(
 #'   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
 #'   label = rep(c("positive", "negative"), each = 10))
-#' g  <- gold_set(gold_data, text = "text", labels = "label",
+#' g  <- gold_set(gold_data, text = "text", label = "label",
 #'                split = c(dev = 0.5, test = 0.5))
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
 #' tune_protocol(list(protocol(cb, cfg, label = "baseline")), g)
@@ -135,10 +155,10 @@ tune_protocol <- function(protocols, gold, split = "dev",
   }
   g <- gold_split(gold, split)
   texts <- g[[gold$text]]
-  truth <- as.character(g[[gold$labels]])
+  truth <- as.character(g[[gold$label]])
 
   res <- .run_protocols(protocols, texts, .runner = .runner, ...)
-  # Distinct labels keep the comparison table and the per_category attribute
+  # Distinct labels keep the comparison table and the per_category field
   # one-to-one with the protocols; duplicate labels (the default when tuning
   # prompt variants on one model) would otherwise overwrite each other.
   plabels <- make.unique(vapply(protocols, `[[`, character(1), "label"))
@@ -156,34 +176,30 @@ tune_protocol <- function(protocols, gold, split = "dev",
       macro_f1 = sc$macro_f1, parse_failures = sc$parse_failures,
       tokens = .tokens_of(ri))
   })
-  out <- do.call(rbind, rows)
-  out <- out[order(-out$accuracy), ]
-  attr(out, "per_category") <- per_cat
-  attr(out, "split") <- split
-  class(out) <- c("protocol_tuning", class(out))
-  out
+  table <- do.call(rbind, rows)
+  table <- table[order(-table$accuracy), ]
+  structure(
+    list(table = table, per_category = per_cat, split = split),
+    class = "protocol_tuning"
+  )
 }
 
 #' @export
 print.protocol_tuning <- function(x, ...) {
   cat(sprintf("<protocol_tuning | split '%s' | protocols = %d>\n",
-              attr(x, "split") %||% NA_character_, nrow(x)))
-  NextMethod()
+              x$split, nrow(x$table)))
+  print(x$table, ...)
   invisible(x)
 }
 
 #' Coerce protocol tuning results to a tibble
-#'
-#' Strips the `protocol_tuning` class and returns the comparison table.
 #'
 #' @param x A `protocol_tuning` object.
 #' @param ... Passed to [tibble::as_tibble()].
 #' @return A tibble with one row per protocol.
 #' @exportS3Method tibble::as_tibble
 as_tibble.protocol_tuning <- function(x, ...) {
-  out <- x
-  class(out) <- setdiff(class(out), "protocol_tuning")
-  tibble::as_tibble(out, ...)
+  tibble::as_tibble(x$table, ...)
 }
 
 # Internal: total tokens (sent + received) when the runner reported them.
@@ -199,8 +215,8 @@ as_tibble.protocol_tuning <- function(x, ...) {
 #' The one honest evaluation. Requires a locked protocol (so the validated
 #' instrument is hash-identified), applies its configured replicate count and
 #' modal-label rule over the holdout split, and when the gold set was built with
-#' `seal_test = TRUE` appends the event to the ledger, so every holdout-split
-#' evaluation that ever happened appears in [coding_report()].
+#' `seal_holdout = TRUE` appends the event to the ledger, so every holdout-split
+#' evaluation that ever happened appears in `LLMR::report()`.
 #'
 #' @param protocol A **locked** [protocol()].
 #' @param gold A [gold_set()].
@@ -220,7 +236,7 @@ as_tibble.protocol_tuning <- function(x, ...) {
 #' gold_data <- data.frame(
 #'   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
 #'   label = rep(c("positive", "negative"), each = 10))
-#' g <- gold_set(gold_data, text = "text", labels = "label",
+#' g <- gold_set(gold_data, text = "text", label = "label",
 #'               split = c(test = 1))
 #' p <- protocol_lock(protocol(cb, LLMR::llm_config("groq", "openai/gpt-oss-20b")))
 #' validate_protocol(p, g)
@@ -245,7 +261,7 @@ validate_protocol <- function(protocol, gold, split = NULL,
   }
   g <- gold_split(gold, split)
   texts <- g[[gold$text]]
-  truth <- as.character(g[[gold$labels]])
+  truth <- as.character(g[[gold$label]])
   res <- .run_protocols(list(protocol), texts, .runner = .runner, ...)
   res <- res[order(res$unit_id), ]
   sc <- .score_labels(res$label, truth, codebook_labels(protocol$codebook))
@@ -272,7 +288,7 @@ print.protocol_validation <- function(x, ...) {
               x$protocol, x$split, x$n))
   cat(sprintf("  accuracy %.3f [%.3f, %.3f] | macro-F1 %.3f | parse failures %d\n",
               x$accuracy, x$acc_lo, x$acc_hi, x$macro_f1, x$parse_failures))
-  if (identical(x$split, x$holdout %||% "test")) {
+  if (identical(x$split, x$holdout)) {
     cat(sprintf("  %s-split evaluations ledgered so far: %d\n",
                 x$split, x$ledger_entries))
   }
@@ -281,14 +297,14 @@ print.protocol_validation <- function(x, ...) {
 
 #' Report a protocol validation through the LLMR generic
 #'
-#' `LLMR::report()` for a `protocol_validation` delegates to
-#' [coding_report()]. The validation object stores scores but not the gold
-#' set or the locked protocol, so calls must pass `gold =` and `protocol =`
-#' through `...`.
+#' `LLMR::report()` for a `protocol_validation` assembles the report from the
+#' validation, gold set, and locked protocol. The validation object stores
+#' scores but not the latter two objects, so calls must pass `gold =` and
+#' `protocol =` through `...`.
 #'
 #' @param x A `protocol_validation` object.
 #' @param ... Must include `gold =` and `protocol =`; additional arguments
-#'   are forwarded to [coding_report()].
+#'   are forwarded to report construction.
 #' @return A `coding_report` object.
 #' @exportS3Method LLMR::report
 report.protocol_validation <- function(x, ...) {
@@ -347,10 +363,12 @@ diagnostics.protocol_validation <- function(x, ...) {
 #'   the only way to disambiguate rows that share identical text. Use the same
 #'   `id` here as in [gold_set()].
 #' @inheritParams tune_protocol
-#' @return `corpus` plus `label` (modal label), `label_share` (share of
-#'   replicates agreeing with it), `parse_failures` per unit, a `.text_hash`
-#'   linkage column, and when `protocol$replicates > 1` the individual replicate
-#'   columns `label_rep1`, `label_rep2`, ....
+#' @return A `coded_corpus` object. Its `data` field contains `corpus` plus
+#'   `label` (modal label), `label_share` (share of replicates agreeing with
+#'   it), `parse_failures` per unit, a `.text_hash` linkage column, and when
+#'   `protocol$replicates > 1` the individual replicate columns `label_rep1`,
+#'   `label_rep2`, .... Protocol and linkage fields are stored alongside the
+#'   data.
 #' @examples
 #' cb <- codebook("tone", "one sentence",
 #'   list(cb_category("positive", "Approving."),
@@ -374,7 +392,7 @@ diagnostics.protocol_validation <- function(x, ...) {
 #' code_corpus(data.frame(text = c("clear progress", "serious problem")),
 #'             p, "text", .runner = keyword_coder)
 #' @export
-code_corpus <- function(corpus, protocol, text, .runner = NULL, id = NULL, ...) {
+code_corpus <- function(corpus, protocol, text, id = NULL, .runner = NULL, ...) {
   stopifnot(is.data.frame(corpus), inherits(protocol, "coding_protocol"))
   if (!isTRUE(protocol$locked)) {
     abort("code_corpus() requires a locked protocol (protocol_lock()).")
@@ -388,6 +406,17 @@ code_corpus <- function(corpus, protocol, text, .runner = NULL, id = NULL, ...) 
   }
   texts <- corpus[[text]]
   k <- protocol$replicates
+  if (!nrow(corpus)) {
+    out <- tibble::as_tibble(corpus)
+    out$label <- character(0)
+    out$label_share <- numeric(0)
+    out$parse_failures <- integer(0)
+    if (k > 1L) {
+      for (r in seq_len(k)) out[[paste0("label_rep", r)]] <- character(0)
+    }
+    out$.text_hash <- character(0)
+    return(.new_coded_corpus(out, protocol, text, id))
+  }
   res <- .run_protocols(list(protocol), texts, .runner = .runner, ...)
   res <- res[order(res$unit_id), , drop = FALSE]
   m <- do.call(rbind, res$replicate_labels)
@@ -399,10 +428,40 @@ code_corpus <- function(corpus, protocol, text, .runner = NULL, id = NULL, ...) 
     for (r in seq_len(k)) out[[paste0("label_rep", r)]] <- m[, r]
   }
   out$.text_hash <- .text_hash(texts)
-  attr(out, "protocol_hash") <- protocol$hash
-  attr(out, "protocol_label") <- protocol$label
-  attr(out, "text") <- text
-  attr(out, "id") <- id
-  attr(out, "labels") <- codebook_labels(protocol$codebook)
-  out
+  .new_coded_corpus(out, protocol, text, id)
+}
+
+# Internal constructor shared by populated and typed-empty results.
+.new_coded_corpus <- function(data, protocol, text, id) {
+  structure(
+    list(
+      data = data,
+      protocol_hash = protocol$hash,
+      protocol_label = protocol$label,
+      text = text,
+      label = "label",
+      id = id,
+      labels = codebook_labels(protocol$codebook)
+    ),
+    class = "coded_corpus"
+  )
+}
+
+#' @export
+print.coded_corpus <- function(x, ...) {
+  linkage <- if (is.null(x$id)) "text hash" else sprintf("id '%s'", x$id)
+  cat(sprintf("<coded_corpus | %d unit(s) | %d label(s) | %s | protocol %s>\n",
+              nrow(x$data), length(x$labels), linkage,
+              substr(x$protocol_hash, 1, 12)))
+  invisible(x)
+}
+
+#' Coerce a coded corpus to a tibble
+#'
+#' @param x A [code_corpus()] result.
+#' @param ... Passed to [tibble::as_tibble()].
+#' @return The coded corpus's `data` tibble.
+#' @exportS3Method tibble::as_tibble
+as_tibble.coded_corpus <- function(x, ...) {
+  tibble::as_tibble(x$data, ...)
 }

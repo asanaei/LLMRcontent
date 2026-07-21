@@ -14,10 +14,11 @@ audit_fragility(audit, reference = 1L, flip = sign_flip())
 \item{flip}{A flip rule (see \link{flip_rules}); default \code{\link[=sign_flip]{sign_flip()}}.}
 }
 \value{
-Integer (or \code{Inf}), with the flipping cells in a
-\code{flipping_cells} attribute. When the reference cell's estimate is NA the
-value is \code{Inf} with a \code{status = "reference_failed"} attribute, since a
-failed reference has no sign or threshold to flip against.
+An \code{audit_fragility} object with \code{fragility} (an integer or \code{Inf}),
+\code{flipping_cells} (the nearest flipping cell IDs), \code{status} (\code{"ok"},
+\code{"no_flip"}, or \code{"reference_failed"}), \code{reference}, and
+\code{reference_estimate}. A failed reference has no conclusion to flip, so
+its fragility is \code{Inf} and its flipping cells are an empty integer vector.
 }
 \description{
 The fragility index is the smallest number of grid dimensions (prompt,

@@ -297,8 +297,8 @@ mod_coder_server <- function(id, shared) {
     shiny::observeEvent(input$create_gold, {
       shiny::req(gold_raw(), input$gold_text_col, input$gold_label_col)
       # A cleared numericInput yields NA; fall back to the default seed.
-      seed <- suppressWarnings(as.integer(input$gold_seed %||% 1L))
-      if (is.na(seed)) seed <- 1L
+      seed <- suppressWarnings(as.integer(input$gold_seed %||% 110L))
+      if (is.na(seed)) seed <- 110L
       set.seed(seed)
       split <- c(dev = input$dev_split / 100, test = 1 - input$dev_split / 100)
 
@@ -309,7 +309,7 @@ mod_coder_server <- function(id, shared) {
           input$gold_label_col,
           split = split,
           stratify = isTRUE(input$stratify_gold),
-          seal_test = TRUE
+          seal_holdout = TRUE
         ),
         shared$provider()
       )
@@ -372,8 +372,6 @@ mod_coder_server <- function(id, shared) {
           temperature = input$temperature %||% 0
         )
         proto_list <- lapply(variants, function(v) {
-          # Use LLMRcontent's default parser (parse_label); the API requires a
-          # function, so do not pass NULL.
           LLMRcontent::protocol(
             codebook = codebook(),
             config = cfg,
@@ -448,14 +446,15 @@ mod_coder_server <- function(id, shared) {
 
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
       tuning(out)
-      shared$add_usage(extract_token_counts(out, fallback_calls = planned))
+      shared$add_usage(extract_token_counts(
+        tibble::as_tibble(out), fallback_calls = planned))
       run_error(NULL)
     })
 
     output$tune_table <- DT::renderDT({
       shiny::req(tuning())
       DT::datatable(
-        as_display_table(tuning()),
+        as_display_table(tibble::as_tibble(tuning())),
         caption = "dev-split, optimistic",
         options = list(scrollX = TRUE, pageLength = 5)
       )
@@ -635,7 +634,7 @@ mod_coder_server <- function(id, shared) {
             corpus = corpus_raw(),
             text_col = input$corpus_text_col,
             protocol = locked_protocol(),
-            runner = runner
+            .runner = runner
           )
           shiny::incProgress(0.8)
           out
@@ -677,7 +676,8 @@ mod_coder_server <- function(id, shared) {
 
     output$coded_preview <- DT::renderDT({
       shiny::req(coded())
-      DT::datatable(as_display_table(coded()), options = list(scrollX = TRUE, pageLength = 5))
+      DT::datatable(as_display_table(tibble::as_tibble(coded())),
+                    options = list(scrollX = TRUE, pageLength = 5))
     })
 
     output$correction_table <- DT::renderDT({
@@ -712,7 +712,7 @@ mod_coder_server <- function(id, shared) {
         if (identical(shared$mode(), "demo") || is_demo_result(coded())) demo_banner_ui(),
         shiny::tags$ul(
           shiny::tags$li("Coded corpus CSV"),
-          shiny::tags$li("Methods text from coding_report()"),
+          shiny::tags$li("Methods text from LLMR::report()"),
           shiny::tags$li("Locked protocol and validation context represented in the methods text")
         ),
         shiny::tags$p("Next: use the methods text with reports, and keep the locked protocol with project records.")
@@ -765,7 +765,7 @@ coder_gold_ui <- function(ns) {
     shiny::fluidRow(
       shiny::column(3, shiny::numericInput(ns("dev_split"), "Dev split percent", value = 60, min = 10, max = 90, step = 5)),
       shiny::column(3, shiny::checkboxInput(ns("stratify_gold"), "Stratify", value = TRUE)),
-      shiny::column(3, shiny::numericInput(ns("gold_seed"), "Seed", value = 1, min = 1, step = 1)),
+      shiny::column(3, shiny::numericInput(ns("gold_seed"), "Seed", value = 110, min = 1, step = 1)),
       shiny::column(3, shiny::actionButton(ns("create_gold"), "Create sealed gold", class = "btn-primary"))
     ),
     shiny::fluidRow(

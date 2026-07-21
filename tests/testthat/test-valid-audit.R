@@ -31,7 +31,8 @@ test_that("plans build, validate, and print their grid", {
   expect_s3_class(p, "audit_plan")
   expect_output(print(p), "no models yet")
 
-  p <- audit_add_models(p, list(a = fix_cfg("balanced"), b = fix_cfg("lean-right")))
+  p <- audit_add_models(
+    p, config = list(a = fix_cfg("balanced"), b = fix_cfg("lean-right")))
   p <- audit_add_prompts(p, terse = "{labels}? {text}")
   p <- audit_add_perturbations(p, label_order = "reversed", temperature = 0.7)
   expect_output(print(p), "2 prompt\\(s\\) x 2 model\\(s\\) x 2 order\\(s\\) x 2 temperature\\(s\\) = 16")
@@ -57,12 +58,61 @@ test_that("audit_run recomputes the estimand per cell", {
                                          right = fix_cfg("lean-right")))
   a <- audit_run(p, .runner = fake_runner)
   expect_s3_class(a, "audit")
-  expect_equal(nrow(a), 2L)
+  expect_named(a, c("cells", "units", "plan"))
+  expect_equal(nrow(a$cells), 2L)
+  expect_s3_class(a$cells, "tbl_df")
+  expect_s3_class(a$units, "tbl_df")
+  expect_s3_class(a$plan, "audit_plan")
+  expect_output(print(a), "<audit")
   # balanced codes 4/6 conservative -> 1/6; lean-right 6/6 -> 0.5
-  expect_equal(a$estimate[a$model == "balanced"], 4 / 6 - 0.5)
-  expect_equal(a$estimate[a$model == "right"], 0.5)
-  expect_true(all(a$parse_failures == 0L))
+  expect_equal(a$cells$estimate[a$cells$model == "balanced"], 4 / 6 - 0.5)
+  expect_equal(a$cells$estimate[a$cells$model == "right"], 0.5)
+  expect_true(all(a$cells$parse_failures == 0L))
+  expect_true(all(is.na(a$units$response_id)))
   expect_error(audit_run(fix_plan(), .runner = fake_runner), "no models")
+})
+
+test_that("audit_run refuses runner-reported failures", {
+  p <- audit_add_models(fix_plan(), list(balanced = fix_cfg("balanced")))
+  failed_runner <- function(experiments, ...) {
+    experiments$response_text <- "conservative"
+    experiments$success <- rep(TRUE, nrow(experiments))
+    experiments$success[c(1, 2)] <- c(FALSE, NA)
+    experiments
+  }
+
+  expect_error(
+    audit_run(p, .runner = failed_runner),
+    "reported 2 unsuccessful row\\(s\\)"
+  )
+
+  missing_rows <- function(experiments, ...) {
+    data.frame(response_text = rep("conservative", nrow(experiments)))
+  }
+  expect_error(audit_run(p, .runner = missing_rows), "return the experiment rows")
+
+  missing_response <- function(experiments, ...) {
+    experiments$response_text <- NA_character_
+    experiments
+  }
+  expect_error(audit_run(p, .runner = missing_response), "missing response")
+
+  duplicated <- function(experiments, ...) {
+    experiments$response_text <- "conservative"
+    experiments$unit_id[2] <- experiments$unit_id[1]
+    experiments
+  }
+  expect_error(audit_run(p, .runner = duplicated), "row identity")
+
+  reversed <- function(experiments, ...) {
+    experiments$response_text <- ifelse(
+      grepl("taxes|state|deregulate",
+            vapply(experiments$messages, `[[`, "", "user")),
+      "conservative", "progressive")
+    experiments[rev(seq_len(nrow(experiments))), , drop = FALSE]
+  }
+  reordered <- audit_run(p, .runner = reversed)
+  expect_equal(reordered$cells$estimate, 4 / 6 - 0.5)
 })
 
 test_that("audit_stability, audit_fragility, and the curve summarize the grid honestly", {
@@ -89,14 +139,41 @@ test_that("audit_stability, audit_fragility, and the curve summarize the grid ho
   expect_true(s$min < 0 && s$max > 0)        # the grid contains a sign flip
 
   f <- audit_fragility(a)
-  expect_identical(as.integer(f), 1L)         # one choice (order) flips it
-  expect_true(length(attr(f, "flipping_cells")) >= 1L)
+  expect_s3_class(f, "audit_fragility")
+  expect_named(f, c("fragility", "flipping_cells", "status", "reference",
+                    "reference_estimate"))
+  expect_identical(f$fragility, 1L)           # one choice (order) flips it
+  expect_true(length(f$flipping_cells) >= 1L)
+  expect_type(f$flipping_cells, "integer")
+  expect_identical(f$status, "ok")
+  expect_identical(f$reference, 1L)
+  expect_equal(f$reference_estimate,
+               a$cells$estimate[a$cells$cell == 1L])
+  expect_output(print(f), "<audit_fragility")
 
-  curve <- audit_curve(a, plot = FALSE)
-  expect_identical(curve$estimate, sort(a$estimate))
-  expect_identical(curve$rank, seq_len(nrow(a)))
+  expect_identical(formals(audit_curve)$plot, FALSE)
+  visible_curve <- withVisible(audit_curve(a))
+  expect_true(visible_curve$visible)
+  curve <- visible_curve$value
+  expect_s3_class(curve, "tbl_df")
+  expect_false(inherits(curve, "audit"))
+  expect_identical(curve$estimate, sort(a$cells$estimate))
+  expect_identical(curve$rank, seq_len(nrow(a$cells)))
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    plotted_curve <- (function() {
+      path <- tempfile(fileext = ".pdf")
+      grDevices::pdf(path)
+      on.exit({
+        grDevices::dev.off()
+        unlink(path)
+      })
+      withVisible(audit_curve(a, plot = TRUE))
+    })()
+    expect_true(plotted_curve$visible)
+    expect_equal(plotted_curve$value, curve)
+  }
 
-  rpt <- audit_report(a)
+  rpt <- LLMR::report(a)
   txt <- paste(unclass(rpt), collapse = "\n")
   expect_match(txt, "4 cells")
   expect_match(txt, "flip the sign")
@@ -114,10 +191,11 @@ test_that("shared generics dispatch for audit objects", {
   expect_s3_class(d, "tbl_df")
   expect_named(d, c("n_cells", "reference_estimate", "sign_agreement",
                     "min", "median", "max", "iqr", "n_failed_cells",
-                    "fragility"))
-  expect_equal(d$n_cells, nrow(a))
+                    "fragility", "fragility_status"))
+  expect_equal(d$n_cells, nrow(a$cells))
   expect_equal(d$reference_estimate, 4 / 6 - 0.5)
   expect_true(is.infinite(d$fragility))
+  expect_identical(d$fragility_status, "no_flip")
 
   rpt <- LLMR::report(a)
   expect_s3_class(rpt, "audit_report")
@@ -126,17 +204,17 @@ test_that("shared generics dispatch for audit objects", {
   tbl <- tibble::as_tibble(a)
   expect_s3_class(tbl, "tbl_df")
   expect_false(inherits(tbl, "audit"))
-  expect_true(is.null(attr(tbl, "plan")))
-  expect_true(is.null(attr(tbl, "units")))
-  expect_equal(nrow(tbl), nrow(a))
+  expect_equal(nrow(tbl), nrow(a$cells))
 })
 
 test_that("fragility is Inf when nothing flips", {
   p <- audit_add_models(fix_plan(), list(right = fix_cfg("lean-right")))
   a <- audit_run(p, .runner = fake_runner)
   f <- audit_fragility(a)
-  expect_true(is.infinite(f))
-  expect_length(attr(f, "flipping_cells"), 0L)
+  expect_s3_class(f, "audit_fragility")
+  expect_true(is.infinite(f$fragility))
+  expect_identical(f$flipping_cells, integer(0))
+  expect_identical(f$status, "no_flip")
 })
 
 test_that("the unit-level trail and cost columns ride along", {
@@ -148,7 +226,7 @@ test_that("the unit-level trail and cost columns ride along", {
     experiments$response_id <- paste0("r-", seq_len(nrow(experiments)))
     experiments
   })
-  expect_equal(a$tokens, 6L * 8L)
+  expect_equal(a$cells$tokens, 6L * 8L)
   u <- audit_units(a)
   expect_equal(nrow(u), 6L)
   expect_true(all(c("cell", "unit_id", "label", "response_id") %in% names(u)))
@@ -170,7 +248,7 @@ test_that("flip rules are pluggable and edge-aware", {
   a <- audit_run(p, .runner = fake_runner)
   # under a threshold rule at 0.25, lean-right (0.5) crosses from balanced (1/6)
   f <- audit_fragility(a, flip = threshold_flip(at = 0.25))
-  expect_identical(as.integer(f), 1L)
+  expect_identical(f$fragility, 1L)
 })
 
 # A runner whose every reply is unparseable, so every label is NA and every
@@ -202,7 +280,19 @@ test_that("diagnostics.audit keeps its documented columns even on an all-NA audi
   a <- audit_run(p, .runner = all_na_runner)
   d <- LLMR::diagnostics(a)
   expect_named(d, c("n_cells", "reference_estimate", "sign_agreement",
-                    "min", "median", "max", "iqr", "n_failed_cells", "fragility"))
+                    "min", "median", "max", "iqr", "n_failed_cells",
+                    "fragility", "fragility_status"))
+  expect_identical(d$fragility_status, "reference_failed")
+
+  f <- audit_fragility(a)
+  expect_s3_class(f, "audit_fragility")
+  expect_true(is.infinite(f$fragility))
+  expect_identical(f$flipping_cells, integer(0))
+  expect_identical(f$status, "reference_failed")
+  expect_true(is.na(f$reference_estimate))
+  expect_output(print(f), "status reference_failed")
+  expect_match(paste(unclass(LLMR::report(a)), collapse = "\n"),
+               "reference cell failed")
 })
 
 test_that("the ecosystem hash convention is pinned (drift guard vs LLMR)", {

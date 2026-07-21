@@ -12,7 +12,7 @@
 #' @param data A data frame of human-labeled units. Gold labels must be
 #'   complete: a missing label is not gold, and construction fails on `NA`s.
 #' @param text Name of the text column (character scalar).
-#' @param labels Name of the (adjudicated) label column.
+#' @param label Name of the (adjudicated) label column.
 #' @param split Named numeric vector of proportions, e.g.
 #'   `c(dev = 0.6, test = 0.4)`. Must sum to 1. Sizes are allocated by
 #'   largest remainder (exact, no rounding loss); assignment is random
@@ -28,9 +28,9 @@
 #' @param stratify If TRUE (default), the split is stratified by the label
 #'   column, so every split carries the same class composition -- the methods
 #'   default for evaluation splits.
-#' @param seal_test If TRUE (default), the holdout split is *sealed*:
+#' @param seal_holdout If TRUE (default), the holdout split is *sealed*:
 #'   every [validate_protocol()] or [gold_correct()] run against it is
-#'   recorded in the ledger and printed by [coding_report()]. The seal is
+#'   recorded in the ledger and printed by `LLMR::report()`. The seal is
 #'   visibility, not enforcement; save the gold set with the study and
 #'   archive the LLM call log (see the archive workflow) when tamper
 #'   evidence is needed.
@@ -50,18 +50,18 @@
 #' g <- gold_set(
 #'   data.frame(text  = paste0("unit", seq_len(40)),
 #'              label = rep(c("x", "y"), each = 20)),
-#'   text = "text", labels = "label", split = c(dev = 0.5, test = 0.5)
+#'   text = "text", label = "label", split = c(dev = 0.5, test = 0.5)
 #' )
 #' g
 #' table(gold_split(g, "dev")$label)   # stratified: same class mix as test
 #' gold_ledger(g)   # empty until something evaluates on the holdout split
 #' @seealso [validate_protocol()], [gold_ledger()], [coder_agreement()]
 #' @export
-gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
-                     holdout = "test", stratify = TRUE, seal_test = TRUE,
+gold_set <- function(data, text, label, split = c(dev = 0.6, test = 0.4),
+                     holdout = "test", stratify = TRUE, seal_holdout = TRUE,
                      coders = NULL, id = NULL) {
   stopifnot(is.data.frame(data), nrow(data) >= 2L)
-  for (col in c(text, labels, coders, id)) {
+  for (col in c(text, label, coders, id)) {
     if (!col %in% names(data)) abort(sprintf("Column '%s' not found in `data`.", col))
   }
   data <- tibble::as_tibble(data)
@@ -80,22 +80,22 @@ gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
   }
   # The seal, the ledger, validate_protocol(), and gold_correct() all address
   # the holdout split; a seal with no such split would be vacuous, so say so.
-  if (isTRUE(seal_test) && !holdout %in% names(split)) {
+  if (isTRUE(seal_holdout) && !holdout %in% names(split)) {
     cli::cli_warn(paste0(
-      "`seal_test = TRUE` but no split is named '", holdout, "', the declared ",
+      "`seal_holdout = TRUE` but no split is named '", holdout, "', the declared ",
       "holdout; the seal, the ledger, validate_protocol(), and gold_correct() ",
       "all act on the holdout split, so nothing will be sealed or ledgered. ",
       "Name one split '", holdout, "', point `holdout` at an existing split, ",
-      "or set seal_test = FALSE."))
+      "or set seal_holdout = FALSE."))
   }
-  if (anyNA(data[[labels]])) {
+  if (anyNA(data[[label]])) {
     abort("Gold labels contain NA; a missing label is not gold. Adjudicate or drop those units first.")
   }
   n <- nrow(data)
   assignment <- character(n)
   if (isTRUE(stratify)) {
-    for (cls in unique(data[[labels]])) {
-      idx <- which(data[[labels]] == cls)
+    for (cls in unique(data[[label]])) {
+      idx <- which(data[[label]] == cls)
       assignment[idx] <- sample(.alloc_split(length(idx), split))
     }
   } else {
@@ -111,17 +111,16 @@ gold_set <- function(data, text, labels, split = c(dev = 0.6, test = 0.4),
   ledger$rows <- list()
   structure(
     list(data = data,
-         text = text, labels = labels, coders = coders, id = id,
-         split = assignment, holdout = holdout, sealed = isTRUE(seal_test),
+         text = text, label = label, coders = coders, id = id,
+         split = assignment, holdout = holdout, sealed = isTRUE(seal_holdout),
          ledger = ledger,
          created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")),
     class = "gold_set"
   )
 }
 
-# Internal: the holdout split name stored on a gold set ("test" for objects
-# saved before the name became configurable).
-.gold_holdout <- function(x) x$holdout %||% "test"
+# Internal: the holdout split name stored on a gold set.
+.gold_holdout <- function(x) x$holdout
 
 # Internal: content hash of normalized text. Linkage that survives whitespace
 # and trivial preprocessing drift, and is explicit about what was matched.
@@ -174,7 +173,7 @@ gold_split <- function(x, split = "dev") {
 #' One row per evaluation that ever touched the sealed holdout split: when,
 #' by which protocol (hash), and with what headline result. Entries are
 #' appended automatically by [validate_protocol()] and [gold_correct()] and
-#' printed in full by [coding_report()]. The mechanism is visibility, not
+#' printed in full by `LLMR::report()`. The mechanism is visibility, not
 #' enforcement -- an in-memory object cannot stop a determined user, and
 #' does not pretend to; archive the study's LLM call log (see the archive
 #' workflow) when tamper evidence is needed.
@@ -221,8 +220,8 @@ gold_ledger <- function(x) {
 #' @param conf Confidence level (default 0.95).
 #' @param n_grid Candidate sizes to evaluate.
 #' @param sims Monte Carlo draws per candidate size.
-#' @return The smallest n in `n_grid` meeting the target, with the simulated
-#'   widths as an attribute.
+#' @return A `gold_size` object with `recommended_size` and a `candidates`
+#'   tibble containing `n`, `mean_ci_width`, and `meets_target`.
 #' @examples
 #' set.seed(110)
 #' gold_size(expected_agreement = 0.85, ci_width = 0.10)
@@ -230,7 +229,10 @@ gold_ledger <- function(x) {
 gold_size <- function(expected_agreement = 0.85, ci_width = 0.10,
                       conf = 0.95, n_grid = c(50, 100, 200, 300, 500, 800),
                       sims = 2000) {
-  stopifnot(expected_agreement > 0, expected_agreement < 1)
+  stopifnot(expected_agreement > 0, expected_agreement < 1,
+            is.numeric(n_grid), length(n_grid) >= 1L,
+            all(is.finite(n_grid)), all(n_grid >= 1),
+            all(n_grid == floor(n_grid)))
   widths <- vapply(n_grid, function(n) {
     hits <- stats::rbinom(sims, n, expected_agreement)
     w <- vapply(hits, function(h) {
@@ -242,9 +244,26 @@ gold_size <- function(expected_agreement = 0.85, ci_width = 0.10,
   ok <- which(widths <= ci_width)
   if (!length(ok)) {
     cli::cli_warn("No candidate size meets the target; largest n returned.")
-    ok <- length(n_grid)
+    recommended <- max(n_grid)
+  } else {
+    recommended <- min(n_grid[ok])
   }
-  out <- n_grid[min(ok)]
-  attr(out, "widths") <- stats::setNames(widths, n_grid)
-  out
+  structure(
+    list(
+      recommended_size = as.integer(recommended),
+      candidates = tibble::tibble(
+        n = as.integer(n_grid),
+        mean_ci_width = as.numeric(widths),
+        meets_target = as.logical(widths <= ci_width)
+      )
+    ),
+    class = "gold_size"
+  )
+}
+
+#' @export
+print.gold_size <- function(x, ...) {
+  cat(sprintf("<gold_size | recommended n = %d | %d candidate(s)>\n",
+              x$recommended_size, nrow(x$candidates)))
+  invisible(x)
 }

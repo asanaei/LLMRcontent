@@ -23,9 +23,10 @@ presentation.
 }
 \details{
 The GUI is optional. It needs the suggested packages shiny, bslib, DT,
-ggplot2, and LLMR.shiny; install them with \code{\link[=install_gui_deps]{install_gui_deps()}} first. Live
-runs read provider API keys from environment variables only, never pasted
-into the app; a deterministic demo mode runs offline.
+ggplot2, and LLMR.shiny. Install them with
+\code{install.packages(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))}.
+Live runs read provider API keys from environment variables only, never
+pasted into the app; a deterministic demo mode runs offline.
 }
 \examples{
 if (interactive() &&
@@ -33,7 +34,4 @@ if (interactive() &&
                requireNamespace, logical(1), quietly = TRUE))) {
   run_content_studio()
 }
-}
-\seealso{
-\code{\link[=install_gui_deps]{install_gui_deps()}} to install the GUI's suggested packages.
 }

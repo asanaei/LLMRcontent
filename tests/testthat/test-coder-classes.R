@@ -1,4 +1,8 @@
 test_that("codebooks validate, print, render, and hash stably", {
+  category <- cb_category("positive", "Approving or hopeful.")
+  expect_s3_class(category, "cb_category")
+  expect_output(print(category), "<cb_category 'positive'>", fixed = TRUE)
+
   cb <- fix_codebook()
   expect_s3_class(cb, "codebook")
   expect_identical(codebook_labels(cb), c("positive", "negative"))
@@ -22,6 +26,12 @@ test_that("codebooks validate, print, render, and hash stably", {
 test_that("gold sets split, seal, and expose a visible ledger", {
   g <- fix_gold(8)
   expect_s3_class(g, "gold_set")
+  expect_identical(g$label, "label")
+  expect_identical(
+    names(formals(gold_set)),
+    c("data", "text", "label", "split", "holdout", "stratify",
+      "seal_holdout", "coders", "id")
+  )
   expect_setequal(unique(g$split), c("dev", "test"))
   expect_equal(nrow(gold_split(g, "dev")) + nrow(gold_split(g, "test")), 8L)
   expect_error(gold_split(g, "nope"), "No split")
@@ -85,6 +95,20 @@ test_that("protocols lock with a content hash over everything that matters", {
   expect_false(identical(pl5$hash, pl$hash))
 })
 
+test_that("protocol uses an internal default parser and accepts ordinary functions", {
+  expect_false("parse_label" %in% getNamespaceExports("LLMRcontent"))
+  expect_null(formals(protocol)$parser)
+
+  p <- protocol(fix_codebook(), fix_config())
+  expect_identical(p$parser(" Positive ", c("positive", "negative")),
+                   "positive")
+  expect_true(is.na(p$parser("other", c("positive", "negative"))))
+
+  custom <- function(text, labels) labels[[2]]
+  expect_identical(protocol(fix_codebook(), fix_config(), parser = custom)$parser,
+                   custom)
+})
+
 test_that("the ecosystem hash convention is pinned (drift guard vs LLMR)", {
   expect_identical(
     LLMR::llm_hash(list(model = "gpt-oss-20b", temperature = 0)),
@@ -102,16 +126,37 @@ test_that("prompt rendering is literal: braces in the text cannot break it", {
 
 test_that("gold_size returns a sensible plan", {
   set.seed(110)
-  n <- gold_size(expected_agreement = 0.85, ci_width = 0.10)
-  expect_true(n %in% c(50, 100, 200, 300, 500, 800))
-  expect_true(all(diff(attr(n, "widths")) < 0))   # wider grid, tighter CI
+  out <- gold_size(expected_agreement = 0.85, ci_width = 0.10)
+  expect_s3_class(out, "gold_size")
+  expect_named(out, c("recommended_size", "candidates"))
+  expect_true(out$recommended_size %in% c(50L, 100L, 200L, 300L, 500L, 800L))
+  expect_named(out$candidates, c("n", "mean_ci_width", "meets_target"))
+  expect_type(out$candidates$n, "integer")
+  expect_type(out$candidates$mean_ci_width, "double")
+  expect_type(out$candidates$meets_target, "logical")
+  expect_true(all(diff(out$candidates$mean_ci_width) < 0))
+  expect_output(print(out), "recommended n")
+
+  set.seed(110)
+  unsorted <- gold_size(ci_width = 0.30,
+                        n_grid = c(300, 50, 200, 100), sims = 50)
+  expect_identical(unsorted$recommended_size, 50L)
+
+  set.seed(110)
+  expect_warning(
+    no_match <- gold_size(ci_width = 1e-8,
+                          n_grid = c(100, 50, 200), sims = 10),
+    "largest n"
+  )
+  expect_identical(no_match$recommended_size, 200L)
+  expect_error(gold_size(n_grid = integer()), "n_grid")
 })
 
 test_that("a seal without a split named 'test' warns instead of passing silently", {
   expect_warning(
     gold_set(data.frame(text = letters[1:4], label = rep(c("x", "y"), 2)),
-             text = "text", labels = "label",
-             split = c(dev = 0.5, holdout = 0.5), seal_test = TRUE),
+             text = "text", label = "label",
+             split = c(dev = 0.5, holdout = 0.5), seal_holdout = TRUE),
     "no split is named 'test'"
   )
 })

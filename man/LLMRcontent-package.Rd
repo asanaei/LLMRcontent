@@ -32,8 +32,8 @@ stored record hashes. \code{\link[=archive_replay]{archive_replay()}} returns st
 recomputation. \code{\link[=archive_redact]{archive_redact()}} removes prompts and response text while
 retaining the archive's hash records.
 
-The optional Shiny interface runs these functions interactively. Use
-\code{\link[=install_gui_deps]{install_gui_deps()}} to install its suggested packages and
+The optional Shiny interface runs these functions interactively. Install its
+suggested packages with \code{\link[utils:install.packages]{utils::install.packages()}} and use
 \code{\link[=run_content_studio]{run_content_studio()}} to start it.
 }
 \seealso{

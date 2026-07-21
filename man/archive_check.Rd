@@ -18,8 +18,9 @@ redaction flag; when TRUE, \code{intact} was checked against the
 \code{root_ok}, \code{n_records},
 \code{bad_records} (indices), \code{duplicate_response_ids} and
 \code{duplicate_request_hashes} (each a character vector of any values that
-appear on more than one record -- a sign of a malformed or merged log), and,
-when \code{results} was given, \code{n_results}, \code{n_matched}, \code{unmatched_ids}.
+appear on more than one record -- a sign of a malformed or merged log),
+\code{n_results}, \code{n_matched}, and \code{unmatched_ids}. The last three are typed
+missing or empty values when \code{results} is not supplied.
 }
 \description{
 Integrity: every record hash is recomputed from the stored verbatim

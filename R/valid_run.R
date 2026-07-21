@@ -7,20 +7,21 @@
 #'
 #' Crosses prompts x models x label orders x temperatures, measures every
 #' unit under every cell, recomputes the estimator per cell, and returns the
-#' audit frame the stability functions consume. Cell 1 -- baseline prompt,
+#' audit object the stability functions consume. Cell 1 -- baseline prompt,
 #' first model, `"as_given"`, first temperature -- is the reference for
 #' [audit_fragility()].
 #'
 #' @param plan An [audit_plan()] with at least one model.
-#' @param .runner Internal seam for tests: `function(experiments, ...)`
-#'   returning the experiments with a `response_text` column. Default
-#'   `LLMR::call_llm_par()`.
+#' @param .runner Offline runner seam: a function `(experiments, ...)` that
+#'   receives a data frame with `config` and `messages` list-columns and returns
+#'   those rows with at least `response_text`. When it returns a `success`
+#'   column, every row must be successful. Default `LLMR::call_llm_par()`.
 #' @param ... Passed to the runner (e.g. `tries`, `progress`).
-#' @return An `audit`: a tibble with one row per cell -- `cell`,
-#'   `prompt`, `model`, `label_order`, `temperature`, `estimate`,
-#'   `parse_failures`, `tokens` (when the runner reports usage) -- with the
-#'   plan and the unit-level table (see [audit_units()]) as attributes.
-#'   Estimator errors inside a cell yield `estimate = NA` for that cell.
+#' @return An `audit` object with `cells` (one row per grid cell), `units`
+#'   (the unit-level trail; see [audit_units()]), and `plan`. The `cells`
+#'   table contains `cell`, `prompt`, `model`, `label_order`, `temperature`,
+#'   `estimate`, `parse_failures`, and `tokens`. Estimator errors inside a
+#'   cell yield `estimate = NA` for that cell.
 #' @examples
 #' \dontrun{
 #' speeches <- data.frame(
@@ -98,7 +99,31 @@ audit_run <- function(plan, .runner = NULL, ...) {
   }
   exps <- do.call(rbind, rows)
   res <- runner(exps, ...)
-  stopifnot(is.data.frame(res), "response_text" %in% names(res))
+  required <- c(names(exps), "response_text")
+  if (!is.data.frame(res) || !all(required %in% names(res)) ||
+      nrow(res) != nrow(exps)) {
+    abort("`.runner` must return the experiment rows with a `response_text` column.")
+  }
+  expected_key <- paste(exps$cell, exps$unit_id, sep = "\r")
+  result_key <- paste(res$cell, res$unit_id, sep = "\r")
+  if (anyNA(res$cell) || anyNA(res$unit_id) || anyDuplicated(result_key) ||
+      !setequal(result_key, expected_key)) {
+    abort("`.runner` must preserve experiment row identity.")
+  }
+  res <- res[match(expected_key, result_key), , drop = FALSE]
+  if ("success" %in% names(res)) {
+    failed <- !(res$success %in% TRUE)
+    if (any(failed)) {
+      abort(sprintf(
+        "`.runner` reported %d unsuccessful row(s); provider failures cannot be included in an audit.",
+        sum(failed)))
+    }
+  }
+  if (anyNA(res$response_text)) {
+    abort(sprintf(
+      "`.runner` returned a missing response for %d row(s); provider failures cannot be included in an audit.",
+      sum(is.na(res$response_text))))
+  }
   res$label <- vapply(res$response_text, .normalize_label, character(1),
                       labels = plan$labels, USE.NAMES = FALSE)
 
@@ -116,44 +141,48 @@ audit_run <- function(plan, .runner = NULL, ...) {
       tokens = if (length(tok)) as.integer(sum(unlist(ri[tok]), na.rm = TRUE))
                else NA_integer_)
   }))
-  unit_cols <- intersect(c("cell", "unit_id", "label", "response_id"),
-                         names(res))
-  attr(out, "units") <- tibble::as_tibble(res[order(res$cell, res$unit_id),
-                                              unit_cols])
-  attr(out, "plan") <- plan
-  class(out) <- c("audit", class(out))
-  out
+  ord <- order(res$cell, res$unit_id)
+  units <- tibble::tibble(
+    cell = as.integer(res$cell[ord]),
+    unit_id = as.integer(res$unit_id[ord]),
+    label = as.character(res$label[ord]),
+    response_id = if ("response_id" %in% names(res))
+      as.character(res$response_id[ord]) else rep(NA_character_, nrow(res))
+  )
+  structure(list(cells = out, units = units, plan = plan), class = "audit")
+}
+
+#' @export
+print.audit <- function(x, ...) {
+  cat(sprintf("<audit | %d cell(s) | %d unit result(s) | %d failed estimate(s)>\n",
+              nrow(x$cells), nrow(x$units), sum(is.na(x$cells$estimate))))
+  invisible(x)
 }
 
 #' The unit-level trail behind an audit
 #'
 #' One row per unit per cell: which label each text received under each
-#' specification (plus `response_id` when the runner reported one, which is
-#' the join key into an archive (see the archive workflow)). Cell summaries answer "is the
+#' specification. `response_id` is the join key into an archive (see the
+#' archive workflow) and is `NA` when the runner did not report one. Cell summaries answer "is the
 #' estimate stable"; this table answers "*which units* moved when it was
 #' not" -- and without it an audit is unfalsifiable.
 #'
 #' @param audit An [audit_run()] result.
-#' @return A tibble: `cell`, `unit_id`, `label`, and `response_id` when
-#'   available.
+#' @return A tibble: `cell`, `unit_id`, `label`, and `response_id`.
 #' @export
 audit_units <- function(audit) {
   stopifnot(inherits(audit, "audit"))
-  attr(audit, "units")
+  audit$units
 }
 
 #' Coerce an audit to a tibble
 #'
 #' @param x An [audit_run()] result.
 #' @param ... Passed to [tibble::as_tibble()].
-#' @return The per-cell tibble with the extra `audit` class and audit
-#'   attributes stripped.
-#' @exportS3Method tibble::as_tibble audit
+#' @return The per-cell tibble.
+#' @exportS3Method tibble::as_tibble
 as_tibble.audit <- function(x, ...) {
-  class(x) <- setdiff(class(x), "audit")
-  attr(x, "units") <- NULL
-  attr(x, "plan") <- NULL
-  tibble::as_tibble(x, ...)
+  tibble::as_tibble(x$cells, ...)
 }
 
 #' Stability of the estimate across the grid
@@ -170,8 +199,9 @@ as_tibble.audit <- function(x, ...) {
 #' @export
 audit_stability <- function(audit, reference = 1L) {
   stopifnot(inherits(audit, "audit"))
-  e <- audit$estimate
-  ref_rows <- which(audit$cell == reference)
+  cells <- audit$cells
+  e <- cells$estimate
+  ref_rows <- which(cells$cell == reference)
   if (!length(ref_rows)) {
     abort(sprintf("Reference cell %s is not among the audit's cells.",
                   as.character(reference)))
@@ -183,13 +213,13 @@ audit_stability <- function(audit, reference = 1L) {
   # Inf/NaN from min()/max()/mean() over empty input.
   if (!any(ok) || is.na(ref)) {
     return(tibble::tibble(
-      n_cells = nrow(audit), reference_estimate = ref,
+      n_cells = nrow(cells), reference_estimate = ref,
       sign_agreement = NA_real_, min = NA_real_, median = NA_real_,
       max = NA_real_, iqr = NA_real_, n_failed_cells = sum(!ok),
       status = if (!any(ok)) "no_valid_estimates" else "reference_failed"))
   }
   tibble::tibble(
-    n_cells = nrow(audit),
+    n_cells = nrow(cells),
     reference_estimate = ref,
     sign_agreement = mean(sign(e[ok]) == sign(ref)),
     min = min(e, na.rm = TRUE),
@@ -213,14 +243,14 @@ audit_stability <- function(audit, reference = 1L) {
 #'
 #' @aliases specification_curve
 #' @param audit An [audit_run()] result.
-#' @param plot Draw the figure (needs `ggplot2`); default is to draw only
-#'   in interactive sessions.
+#' @param plot Draw the figure (needs `ggplot2`); default `FALSE`.
 #' @return The ordered tibble (the estimate ranking plus the grid coordinates),
-#'   invisibly when plotted.
+#'   returned visibly whether or not the figure is drawn.
 #' @export
-audit_curve <- function(audit, plot = interactive()) {
+audit_curve <- function(audit, plot = FALSE) {
   stopifnot(inherits(audit, "audit"))
-  out <- audit[order(audit$estimate), ]
+  out <- tibble::as_tibble(audit)
+  out <- out[order(out$estimate), , drop = FALSE]
   out$rank <- seq_len(nrow(out))
   if (isTRUE(plot)) {
     if (!requireNamespace("ggplot2", quietly = TRUE)) {
@@ -234,7 +264,6 @@ audit_curve <- function(audit, plot = interactive()) {
                     title = "Measurement multiverse") +
       ggplot2::theme_minimal()
     print(p)
-    return(invisible(out))
   }
   out
 }
@@ -295,42 +324,59 @@ threshold_flip <- function(at) {
 #' @param audit An [audit_run()] result.
 #' @param reference Reference cell (default 1).
 #' @param flip A flip rule (see [flip_rules]); default [sign_flip()].
-#' @return Integer (or `Inf`), with the flipping cells in a
-#'   `flipping_cells` attribute. When the reference cell's estimate is NA the
-#'   value is `Inf` with a `status = "reference_failed"` attribute, since a
-#'   failed reference has no sign or threshold to flip against.
+#' @return An `audit_fragility` object with `fragility` (an integer or `Inf`),
+#'   `flipping_cells` (the nearest flipping cell IDs), `status` (`"ok"`,
+#'   `"no_flip"`, or `"reference_failed"`), `reference`, and
+#'   `reference_estimate`. A failed reference has no conclusion to flip, so
+#'   its fragility is `Inf` and its flipping cells are an empty integer vector.
 #' @export
 audit_fragility <- function(audit, reference = 1L, flip = sign_flip()) {
   stopifnot(inherits(audit, "audit"), is.function(flip))
-  ref_rows <- which(audit$cell == reference)
+  cells <- audit$cells
+  ref_rows <- which(cells$cell == reference)
   if (!length(ref_rows)) {
     abort(sprintf("Reference cell %s is not among the audit's cells.",
                   as.character(reference)))
   }
-  ref <- audit[ref_rows[1], ]
-  # A failed reference estimate has no sign/threshold to flip against; fragility
-  # is undefined. Report it as Inf (nothing flips) with a status attribute.
+  ref <- cells[ref_rows[1], ]
+  fragility <- Inf
+  flipping_cells <- integer(0)
+  status <- "no_flip"
+
+  # A failed reference estimate has no sign or threshold to flip against.
   if (is.na(ref$estimate)) {
-    out <- Inf
-    attr(out, "flipping_cells") <- integer(0)
-    attr(out, "status") <- "reference_failed"
-    return(out)
+    status <- "reference_failed"
+  } else {
+    flips <- flip(cells$estimate, ref$estimate)
+    flipped <- cells[flips %in% TRUE, ]
+    if (nrow(flipped)) {
+      status <- "ok"
+      dims <- c("prompt", "model", "label_order", "temperature")
+      dist <- vapply(seq_len(nrow(flipped)), function(i) {
+        sum(vapply(dims, function(d)
+          !identical(flipped[[d]][i], ref[[d]]), logical(1)))
+      }, numeric(1))
+      fragility <- as.integer(min(dist))
+      flipping_cells <- as.integer(flipped$cell[dist == min(dist)])
+    }
   }
-  flips <- flip(audit$estimate, ref$estimate)
-  flipped <- audit[flips %in% TRUE, ]
-  if (!nrow(flipped)) {
-    out <- Inf
-    attr(out, "flipping_cells") <- integer(0)
-    return(out)
-  }
-  dims <- c("prompt", "model", "label_order", "temperature")
-  dist <- vapply(seq_len(nrow(flipped)), function(i) {
-    sum(vapply(dims, function(d)
-      !identical(flipped[[d]][i], ref[[d]]), logical(1)))
-  }, numeric(1))
-  out <- as.integer(min(dist))
-  attr(out, "flipping_cells") <- flipped$cell[dist == min(dist)]
-  out
+
+  structure(
+    list(fragility = fragility,
+         flipping_cells = flipping_cells,
+         status = status,
+         reference = as.integer(ref$cell[[1]]),
+         reference_estimate = as.numeric(ref$estimate[[1]])),
+    class = "audit_fragility"
+  )
+}
+
+#' @export
+print.audit_fragility <- function(x, ...) {
+  value <- if (is.infinite(x$fragility)) "Inf" else as.character(x$fragility)
+  cat(sprintf("<audit_fragility | fragility %s | status %s | %d flipping cell(s)>\n",
+              value, x$status, length(x$flipping_cells)))
+  invisible(x)
 }
 
 #' Audit diagnostics through LLMR's shared generic
@@ -343,16 +389,16 @@ audit_fragility <- function(audit, reference = 1L, flip = sign_flip()) {
 #' @param flip A flip rule (see [flip_rules]); default [sign_flip()].
 #' @param ... Unused; accepted for generic compatibility.
 #' @return A one-row tibble with `n_cells`, `reference_estimate`,
-#'   `sign_agreement`, `min`, `median`, `max`, `iqr`, `n_failed_cells`, and
-#'   `fragility`.
-#' @exportS3Method LLMR::diagnostics audit
+#'   `sign_agreement`, `min`, `median`, `max`, `iqr`, `n_failed_cells`,
+#'   `fragility`, and `fragility_status`.
+#' @exportS3Method LLMR::diagnostics
 diagnostics.audit <- function(x, reference = 1L, flip = sign_flip(), ...) {
   s <- audit_stability(x, reference = reference)
-  # `status` is a stability-level field; the diagnostics row keeps its stable
-  # documented column set and conveys failure through NA values + fragility.
+  # The stability and fragility summaries have distinct status fields.
   s$status <- NULL
   f <- audit_fragility(x, reference = reference, flip = flip)
-  s$fragility <- if (is.infinite(f)) Inf else as.integer(f)
+  s$fragility <- f$fragility
+  s$fragility_status <- f$status
   s
 }
 
@@ -376,7 +422,7 @@ diagnostics.audit <- function(x, reference = 1L, flip = sign_flip(), ...) {
 #'   partisanship estimand, say). Choosing them is a research decision the
 #'   package cannot make for you. The vector is recycled deterministically
 #'   (`rep_len()`) to the number of units.
-#' @param .runner Internal seam for tests, passed to [audit_run()] for the
+#' @param .runner Offline runner seam, passed to [audit_run()] for the
 #'   irrelevant-text rerun.
 #' @param ... Passed to [audit_run()] for the irrelevant-text rerun.
 #' @return An `audit_placebo` object: a list with `type`, `cells`, `reps`,
@@ -436,8 +482,8 @@ audit_placebo <- function(audit, type = c("label_permutation", "irrelevant_text"
   if (!inherits(audit, "audit")) {
     abort("`audit` must be an audit_run() result.")
   }
-  plan <- attr(audit, "plan")
-  units <- attr(audit, "units")
+  plan <- audit$plan
+  units <- audit$units
   if (!inherits(plan, "audit_plan")) {
     abort("`audit` is missing its audit plan.")
   }
@@ -469,14 +515,16 @@ audit_placebo <- function(audit, type = c("label_permutation", "irrelevant_text"
   plan2$data <- tibble::as_tibble(plan$data)
   plan2$data[[plan2$text]] <- rep_len(texts, n_units)
   placebo <- audit_run(plan2, .runner = .runner, ...)
-  idx <- match(audit$cell, placebo$cell)
+  cells_real <- audit$cells
+  cells_placebo <- placebo$cells
+  idx <- match(cells_real$cell, cells_placebo$cell)
 
   cells <- tibble::tibble(
-    cell = audit$cell, prompt = audit$prompt, model = audit$model,
-    label_order = audit$label_order, temperature = audit$temperature,
-    estimate = audit$estimate,
-    estimate_placebo = placebo$estimate[idx],
-    parse_failures_placebo = placebo$parse_failures[idx])
+    cell = cells_real$cell, prompt = cells_real$prompt,
+    model = cells_real$model, label_order = cells_real$label_order,
+    temperature = cells_real$temperature, estimate = cells_real$estimate,
+    estimate_placebo = cells_placebo$estimate[idx],
+    parse_failures_placebo = cells_placebo$parse_failures[idx])
   structure(list(type = type, cells = cells, reps = NA_integer_,
                  n_units = as.integer(n_units)),
             class = "audit_placebo")
@@ -485,9 +533,10 @@ audit_placebo <- function(audit, type = c("label_permutation", "irrelevant_text"
 # Internal: per-cell permutation null. The marginal is held fixed; the
 # label-unit link is what the shuffle destroys.
 .placebo_label_permutation <- function(audit, plan, units, reps) {
-  rows <- vector("list", nrow(audit))
-  for (i in seq_len(nrow(audit))) {
-    g <- audit$cell[i]
+  cells <- audit$cells
+  rows <- vector("list", nrow(cells))
+  for (i in seq_len(nrow(cells))) {
+    g <- cells$cell[i]
     ug <- units[units$cell == g, , drop = FALSE]
     ug <- ug[order(ug$unit_id), , drop = FALSE]
     labels <- ug$label
@@ -502,7 +551,7 @@ audit_placebo <- function(audit, type = c("label_permutation", "irrelevant_text"
                           error = function(e) NA_real_)
     }
     ok <- !is.na(perm)
-    obs <- as.numeric(audit$estimate[i])[1]
+    obs <- as.numeric(cells$estimate[i])[1]
     p <- null_lo <- null_hi <- NA_real_
     degenerate <- NA
     if (any(ok)) {
@@ -517,8 +566,8 @@ audit_placebo <- function(audit, type = c("label_permutation", "irrelevant_text"
       }
     }
     rows[[i]] <- tibble::tibble(
-      cell = audit$cell[i], prompt = audit$prompt[i], model = audit$model[i],
-      label_order = audit$label_order[i], temperature = audit$temperature[i],
+      cell = cells$cell[i], prompt = cells$prompt[i], model = cells$model[i],
+      label_order = cells$label_order[i], temperature = cells$temperature[i],
       estimate = obs, p = p, null_lo = null_lo, null_hi = null_hi,
       degenerate = degenerate,
       n_perm_ok = sum(ok), n_perm_failed = sum(!ok))
@@ -556,38 +605,36 @@ print.audit_placebo <- function(x, ...) {
 #' @param x An [audit_placebo()] result.
 #' @param ... Passed to [tibble::as_tibble()].
 #' @return The placebo `cells` tibble.
-#' @exportS3Method tibble::as_tibble audit_placebo
+#' @exportS3Method tibble::as_tibble
 as_tibble.audit_placebo <- function(x, ...) {
   tibble::as_tibble(x$cells, ...)
 }
 
-#' Draft the robustness appendix
-#'
-#' @param audit An [audit_run()] result.
-#' @param ... Unused; accepted for generic compatibility.
-#' @return Character lines of class `audit_report`, with a print
-#'   method: grid dimensions, stability metrics, fragility, parse-failure
-#'   accounting, and the no-badge disclaimer.
-#' @export
+# Internal: draft the robustness appendix from an audit object.
 audit_report <- function(audit, ...) {
   stopifnot(inherits(audit, "audit"))
-  plan <- attr(audit, "plan")
+  plan <- audit$plan
+  cells <- audit$cells
   s <- audit_stability(audit)
   f <- audit_fragility(audit)
   lines <- c(
     sprintf("MEASUREMENT ROBUSTNESS AUDIT over %d cells: %d prompt(s) x %d model(s) x %d label order(s) x %d temperature(s); %d unit(s) measured per cell.",
-            nrow(audit), length(unique(audit$prompt)),
-            length(unique(audit$model)), length(unique(audit$label_order)),
-            length(unique(audit$temperature)), nrow(plan$data)),
+            nrow(cells), length(unique(cells$prompt)),
+            length(unique(cells$model)), length(unique(cells$label_order)),
+            length(unique(cells$temperature)), nrow(plan$data)),
     sprintf("ESTIMATES. Reference %.4f; range [%.4f, %.4f]; median %.4f; IQR %.4f.",
             s$reference_estimate, s$min, s$max, s$median, s$iqr),
     sprintf("SIGN. %.0f%% of cells agree with the reference sign.",
             100 * s$sign_agreement),
     sprintf("FRAGILITY. %s",
-            if (is.infinite(f)) "No cell in this grid flips the sign (a statement about this grid, not a guarantee)."
-            else sprintf("Changing %d measurement choice(s) suffices to flip the sign.", f)),
+            if (identical(f$status, "reference_failed"))
+              "The reference cell failed; fragility is undefined."
+            else if (is.infinite(f$fragility))
+              "No cell in this grid flips the sign (a statement about this grid, not a guarantee)."
+            else sprintf("Changing %d measurement choice(s) suffices to flip the sign.",
+                         f$fragility)),
     sprintf("PARSING. %d cell(s) had parse failures; %d cell(s) failed to estimate.",
-            sum(audit$parse_failures > 0), s$n_failed_cells),
+            sum(cells$parse_failures > 0), s$n_failed_cells),
     "NOTE. A \"passed audit\" badge is deliberately absent: the deliverable is the distribution of estimates, not a blessing.",
     "NOTE. Perturbation robustness is not construct validity; pair with the gold-set validation in the coding workflow."
   )
@@ -600,9 +647,10 @@ audit_report <- function(audit, ...) {
 #' distribution of estimates, not a blessing.
 #'
 #' @param x An [audit_run()] result.
-#' @param ... Passed to [audit_report()].
-#' @return An `audit_report`.
-#' @exportS3Method LLMR::report audit
+#' @param ... Unused; accepted for generic compatibility.
+#' @return Character lines of class `audit_report`, with grid dimensions,
+#'   stability metrics, fragility, and parse-failure accounting.
+#' @exportS3Method LLMR::report
 report.audit <- function(x, ...) {
   audit_report(x, ...)
 }

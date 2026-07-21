@@ -1,7 +1,7 @@
 # gold_correct runs entirely offline: the fake runner errs at a known,
 # asymmetric rate, so every corrected number is hand-computable.
 
-gold_correct_fixture <- function(seal_test = TRUE, parse_failure = FALSE,
+gold_correct_fixture <- function(seal_holdout = TRUE, parse_failure = FALSE,
                                  unmatched = FALSE) {
   cb <- codebook("stance", "one text",
     list(cb_category("A", "Category A."),
@@ -23,8 +23,8 @@ gold_correct_fixture <- function(seal_test = TRUE, parse_failure = FALSE,
 
   gold <- gold_set(
     data.frame(text = gold_text, label = truth[gold_rows]),
-    text = "text", labels = "label", split = c(test = 1),
-    seal_test = seal_test)
+    text = "text", label = "label", split = c(test = 1),
+    seal_holdout = seal_holdout)
 
   fake <- function(experiments, ...) {
     user <- vapply(experiments$messages, `[[`, "", "user")
@@ -71,13 +71,13 @@ test_that("gold_correct moves the estimate toward the corpus truth", {
 })
 
 test_that("gold_correct ledgers test-split use only when sealed", {
-  sealed <- gold_correct_fixture(seal_test = TRUE)
+  sealed <- gold_correct_fixture(seal_holdout = TRUE)
   expect_equal(nrow(gold_ledger(sealed$gold)), 0L)
   gold_correct(sealed$coded, sealed$gold)
   expect_equal(nrow(gold_ledger(sealed$gold)), 1L)
   expect_equal(gold_ledger(sealed$gold)$accuracy, 16 / 20)
 
-  unsealed <- gold_correct_fixture(seal_test = FALSE)
+  unsealed <- gold_correct_fixture(seal_holdout = FALSE)
   gold_correct(unsealed$coded, unsealed$gold)
   expect_equal(nrow(gold_ledger(unsealed$gold)), 0L)
 })
@@ -110,14 +110,15 @@ test_that("categories with zero corpus share still appear", {
 
 test_that("code_corpus stores the text column and codebook labels", {
   fx <- gold_correct_fixture()
-  expect_identical(attr(fx$coded, "text"), "text")
-  expect_identical(attr(fx$coded, "labels"), c("A", "B", "C"))
+  expect_identical(fx$coded$text, "text")
+  expect_identical(fx$coded$label, "label")
+  expect_identical(fx$coded$labels, c("A", "B", "C"))
 })
 
 test_that("code_corpus carries a .text_hash linkage column", {
   fx <- gold_correct_fixture()
-  expect_true(".text_hash" %in% names(fx$coded))
-  expect_identical(nrow(fx$coded), length(fx$coded$.text_hash))
+  expect_true(".text_hash" %in% names(fx$coded$data))
+  expect_identical(nrow(fx$coded$data), length(fx$coded$data$.text_hash))
 })
 
 # A fixture with duplicated corpus text where the duplicates carry DIFFERENT
@@ -143,19 +144,19 @@ dup_text_fixture <- function(use_id = FALSE) {
     label = c("A", "B", rep("A", 5), rep("B", 5)),
     stringsAsFactors = FALSE)
 
-  gold <- if (use_id) {
-    gold_set(gold_df, text = "text", labels = "label",
+  gold <- suppressWarnings(if (use_id) {
+    gold_set(gold_df, text = "text", label = "label",
              split = c(test = 1), id = "uid")
   } else {
-    gold_set(gold_df, text = "text", labels = "label", split = c(test = 1))
-  }
+    gold_set(gold_df, text = "text", label = "label", split = c(test = 1))
+  })
 
   fake <- function(experiments, ...) {
     experiments$response_text <- "A"
     experiments
   }
   coded <- if (use_id) {
-    code_corpus(corpus, p, "text", .runner = fake, id = "uid")
+    code_corpus(corpus, p, "text", id = "uid", .runner = fake)
   } else {
     code_corpus(corpus, p, "text", .runner = fake)
   }
@@ -172,7 +173,7 @@ test_that("duplicated corpus text without an id is refused, not silently first-m
 
 test_that("an explicit shared id disambiguates duplicated text", {
   fx <- dup_text_fixture(use_id = TRUE)
-  res <- gold_correct(fx$coded, fx$gold)
+  res <- suppressWarnings(gold_correct(fx$coded, fx$gold))
   expect_s3_class(res, "gold_correction")
   expect_identical(res$link_by, "id")
   # both duplicate units were audited (12 audit pairs total)
@@ -181,12 +182,11 @@ test_that("an explicit shared id disambiguates duplicated text", {
 
 test_that("id linkage survives reordered corpus rows", {
   fx <- dup_text_fixture(use_id = TRUE)
-  shuffled <- fx$coded[rev(seq_len(nrow(fx$coded))), , drop = FALSE]
-  # restore the carried attributes lost by the [ ]-subset
-  for (a in c("protocol_hash", "protocol_label", "text", "id", "labels")) {
-    attr(shuffled, a) <- attr(fx$coded, a)
-  }
-  res <- gold_correct(shuffled, fx$gold)
+  shuffled <- fx$coded
+  shuffled$data <- fx$coded$data[
+    rev(seq_len(nrow(fx$coded$data))), , drop = FALSE
+  ]
+  res <- suppressWarnings(gold_correct(shuffled, fx$gold))
   expect_identical(res$link_by, "id")
   expect_equal(res$n_audit, 12L)
 })
@@ -196,11 +196,8 @@ test_that("duplicated corpus ids are refused, not silently first-matched (regres
   # carry duplicates, and the id-link path must refuse them exactly as the
   # text-hash path refuses duplicated text.
   fx <- dup_text_fixture(use_id = TRUE)
-  extra <- fx$coded[1, , drop = FALSE]         # duplicate the first id
-  dup <- rbind(fx$coded, extra)
-  for (a in c("protocol_hash", "protocol_label", "text", "id", "labels")) {
-    attr(dup, a) <- attr(fx$coded, a)
-  }
+  dup <- fx$coded
+  dup$data <- rbind(fx$coded$data, fx$coded$data[1, , drop = FALSE])
   expect_error(
     gold_correct(dup, fx$gold),
     "duplicated in the coded corpus"

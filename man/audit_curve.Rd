@@ -5,17 +5,16 @@
 \alias{specification_curve}
 \title{The specification curve}
 \usage{
-audit_curve(audit, plot = interactive())
+audit_curve(audit, plot = FALSE)
 }
 \arguments{
 \item{audit}{An \code{\link[=audit_run]{audit_run()}} result.}
 
-\item{plot}{Draw the figure (needs \code{ggplot2}); default is to draw only
-in interactive sessions.}
+\item{plot}{Draw the figure (needs \code{ggplot2}); default \code{FALSE}.}
 }
 \value{
 The ordered tibble (the estimate ranking plus the grid coordinates),
-invisibly when plotted.
+returned visibly whether or not the figure is drawn.
 }
 \description{
 Cells ordered by their estimate, with the grid coordinates alongside --

@@ -53,7 +53,7 @@
 #' plus the label columns to compare (e.g. model replicates from
 #' [code_corpus()], or one human column and one model column).
 #'
-#' @param x A [gold_set()] or a data frame.
+#' @param x A [gold_set()], a [code_corpus()] result, or a data frame.
 #' @param cols For data frames: character vector of label columns. Ignored
 #'   for gold sets (their `coders` columns are used).
 #' @return An `llmr_agreement` object (mean pairwise agreement,
@@ -67,6 +67,7 @@ coder_agreement <- function(x, cols = NULL) {
     }
     return(LLMR::llm_agreement(x$data, cols = x$coders))
   }
+  if (inherits(x, "coded_corpus")) x <- x$data
   stopifnot(is.data.frame(x), is.character(cols), length(cols) >= 2L)
   LLMR::llm_agreement(x, cols = cols)
 }

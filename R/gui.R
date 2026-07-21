@@ -19,14 +19,14 @@
 #' presentation.
 #'
 #' The GUI is optional. It needs the suggested packages shiny, bslib, DT,
-#' ggplot2, and LLMR.shiny; install them with [install_gui_deps()] first. Live
-#' runs read provider API keys from environment variables only, never pasted
-#' into the app; a deterministic demo mode runs offline.
+#' ggplot2, and LLMR.shiny. Install them with
+#' `install.packages(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))`.
+#' Live runs read provider API keys from environment variables only, never
+#' pasted into the app; a deterministic demo mode runs offline.
 #'
 #' @param ... Passed to [shiny::runApp()] (e.g. `port`, `launch.browser`).
 #' @return Invisibly, the value of [shiny::runApp()]; called for the side effect
 #'   of starting the app.
-#' @seealso [install_gui_deps()] to install the GUI's suggested packages.
 #' @examples
 #' if (interactive() &&
 #'     all(vapply(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"),
@@ -46,7 +46,9 @@ run_content_studio <- function(...) {
   if (length(missing)) {
     stop("The LLMRcontent GUI needs these packages: ",
          paste(missing, collapse = ", "),
-         ". Install them with LLMRcontent::install_gui_deps(), then retry.",
+         ". Install them with install.packages(c(",
+         paste(sprintf("\"%s\"", missing), collapse = ", "),
+         ")), then retry.",
          call. = FALSE)
   }
   invisible(TRUE)

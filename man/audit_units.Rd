@@ -10,13 +10,12 @@ audit_units(audit)
 \item{audit}{An \code{\link[=audit_run]{audit_run()}} result.}
 }
 \value{
-A tibble: \code{cell}, \code{unit_id}, \code{label}, and \code{response_id} when
-available.
+A tibble: \code{cell}, \code{unit_id}, \code{label}, and \code{response_id}.
 }
 \description{
 One row per unit per cell: which label each text received under each
-specification (plus \code{response_id} when the runner reported one, which is
-the join key into an archive (see the archive workflow)). Cell summaries answer "is the
+specification. \code{response_id} is the join key into an archive (see the
+archive workflow) and is \code{NA} when the runner did not report one. Cell summaries answer "is the
 estimate stable"; this table answers "\emph{which units} moved when it was
 not" -- and without it an audit is unfalsifiable.
 }

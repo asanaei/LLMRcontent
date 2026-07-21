@@ -37,6 +37,12 @@ cb_category <- function(label, definition, include = NULL, exclude = NULL,
   )
 }
 
+#' @export
+print.cb_category <- function(x, ...) {
+  cat(sprintf("<cb_category '%s'>\n  %s\n", x$label, x$definition))
+  invisible(x)
+}
+
 #' Create a codebook
 #'
 #' A codebook is the measurement instrument of a content analysis: construct

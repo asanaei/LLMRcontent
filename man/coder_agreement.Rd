@@ -7,7 +7,7 @@
 coder_agreement(x, cols = NULL)
 }
 \arguments{
-\item{x}{A \code{\link[=gold_set]{gold_set()}} or a data frame.}
+\item{x}{A \code{\link[=gold_set]{gold_set()}}, a \code{\link[=code_corpus]{code_corpus()}} result, or a data frame.}
 
 \item{cols}{For data frames: character vector of label columns. Ignored
 for gold sets (their \code{coders} columns are used).}

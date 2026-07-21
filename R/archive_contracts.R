@@ -22,8 +22,9 @@
 #' (`include_messages = FALSE`) cannot be replayed and are excluded.
 #'
 #' The replayer is stateful: each key holds a queue consumed as requests arrive.
-#' [reset()] returns it to its initial position so a deterministic pipeline can
-#' be replayed again. `replay_mode` chooses what a repeated request gets:
+#' `LLMR::reset()` returns it to its initial position so a deterministic
+#' pipeline can be replayed again. `replay_mode` chooses what a repeated
+#' request gets:
 #' `"queue"` (default) serves the next archived response in order; `"first"`
 #' always serves the first response for a key
 #' (idempotent, never exhausts); `"strict_once"` errors if a key is requested
@@ -35,7 +36,7 @@
 #'   argument. It returns the input experiments with `response_text`,
 #'   `sent_tokens`, `rec_tokens`, `response_id`, `success`, and
 #'   `error_message` columns; unmatched rows carry `NA` text, `success = FALSE`,
-#'   and `"not in archive"`. Reset it with [reset()].
+#'   and `"not in archive"`. Reset it with `LLMR::reset()`.
 #' @examples
 #' # One archived call (in practice the log comes from LLMR::llm_log_enable()).
 #' log <- tempfile(fileext = ".jsonl")
@@ -56,8 +57,8 @@
 #'   messages = list(c(user = "Capital of France?")))
 #' replay(experiments)$response_text
 #'
-#' # The queue advances as it serves; reset() restores it for a second pass.
-#' reset(replay)
+#' # The queue advances as it serves; LLMR::reset() restores it for a second pass.
+#' LLMR::reset(replay)
 #' replay(experiments)$response_text
 #' @export
 archive_replay <- function(archive, replay_mode = c("queue", "first", "strict_once")) {
@@ -81,8 +82,8 @@ archive_replay <- function(archive, replay_mode = c("queue", "first", "strict_on
     keys <- c(keys, key)
   }
 
-  # Queue state lives in an environment the replayer closes over, so reset()
-  # can restore it. .seed holds the initial state to rebuild from.
+  # Queue state lives in an environment the replayer closes over, so
+  # LLMR::reset() can restore it. .seed holds the initial state to rebuild from.
   state <- new.env(parent = emptyenv())
   state$.seed <- list()
   for (key in unique(keys)) {
@@ -165,15 +166,6 @@ archive_replay <- function(archive, replay_mode = c("queue", "first", "strict_on
   invisible(state)
 }
 
-# The reset() generic and its erroring default now live in LLMR (alongside
-# diagnostics()/report()). Re-export the generic so a user of this package can
-# call reset() on a replayer without attaching LLMR, and register the
-# archive_replayer method against it.
-
-#' @importFrom LLMR reset
-#' @export
-LLMR::reset
-
 #' Reset an archive replayer to its initial position
 #'
 #' @param x An `archive_replayer` from [archive_replay()].
@@ -194,7 +186,7 @@ print.archive_replayer <- function(x, ...) {
   invisible(x)
 }
 
-#' Re-verify archived calls against the live providers
+#' Measure drift in archived calls against the live providers
 #'
 #' Draws a stratified sample of archived calls, re-issues them, and reports
 #' exact-match rates and any change in the served `model_version`. Exact
@@ -202,18 +194,23 @@ print.archive_replayer <- function(x, ...) {
 #' open-weight backends; for sampled calls disagreement is sampling, not
 #' necessarily drift, and the print method says so.
 #'
-#' With `sample <= 1` the value is a fraction and each stratum contributes
-#' `ceiling(sample * n)` records. With `sample > 1` the value is a total count,
-#' allocated across strata by largest remainder in proportion to stratum size,
-#' with at least one record per nonempty stratum when the total allows. The
-#' draw uses [sample()]; set a seed beforehand for a reproducible sample.
+#' `fraction` and `n` are mutually exclusive. When neither is supplied,
+#' `fraction = 0.05` is used. A fraction draws `ceiling(fraction * n)` records
+#' from each stratum. A count is allocated across strata by largest remainder
+#' in proportion to stratum size, with at least one record per nonempty stratum
+#' when the count allows. The draw uses [sample()]; set a seed beforehand for a
+#' reproducible sample. Eligibility, request reconstruction, and archived text
+#' are read from the stored raw records, not their parsed cache.
 #'
 #' @param archive An `archive`.
-#' @param sample Fraction in `(0, 1]`, or a total count of calls to re-issue.
+#' @param fraction Fraction of eligible calls to re-issue within each stratum,
+#'   in `(0, 1]`. Mutually exclusive with `n`.
+#' @param n Total number of eligible calls to re-issue, allocated across
+#'   strata. Mutually exclusive with `fraction`.
 #' @param strata Manifest columns to stratify by.
-#' @param .runner Internal seam for tests: a function taking an experiments
-#'   tibble (`config` and `messages` list-columns) and returning it with a
-#'   `response_text` column. Default `LLMR::call_llm_par()`.
+#' @param .runner Offline seam: a function taking an experiments data frame
+#'   with `config` and `messages` list-columns and returning those rows with at
+#'   least a `response_text` column. Default `LLMR::call_llm_par()`.
 #' @param ... Passed to the runner.
 #' @return An `archive_drift` object: `table` is a per-stratum tibble that
 #'   begins with the chosen `strata` columns (`provider`, `model` by default),
@@ -237,21 +234,40 @@ print.archive_replayer <- function(x, ...) {
 #'   experiments$model_version <- "gpt-4o-mini-2026-06-01"
 #'   experiments
 #' }
-#' archive_verify(a, sample = 1, .runner = echo)$table
+#' archive_drift(a, fraction = 1, .runner = echo)$table
 #' @export
-archive_verify <- function(archive, sample = 0.05,
-                           strata = c("provider", "model"),
-                           .runner = NULL, ...) {
-  stopifnot(inherits(archive, "archive"),
-            is.numeric(sample), length(sample) == 1L,
-            is.finite(sample), sample > 0)
+archive_drift <- function(archive, fraction = NULL, n = NULL,
+                          strata = c("provider", "model"),
+                          .runner = NULL, ...) {
+  stopifnot(inherits(archive, "archive"))
+  if (!is.null(fraction) && !is.null(n)) {
+    abort("Supply only one of `fraction` and `n`.")
+  }
+  if (is.null(fraction) && is.null(n)) fraction <- 0.05
+  if (!is.null(fraction) &&
+      (!is.numeric(fraction) || length(fraction) != 1L ||
+       !is.finite(fraction) || fraction <= 0 || fraction > 1)) {
+    abort("`fraction` must be one number in (0, 1].")
+  }
+  if (!is.null(n) &&
+      (!is.numeric(n) || length(n) != 1L || !is.finite(n) ||
+       n < 1 || n != floor(n))) {
+    abort("`n` must be a positive whole number.")
+  }
   strata <- as.character(strata)
   if (!length(strata)) abort("`strata` must name at least one manifest column.")
 
-  eligible_idx <- which(vapply(archive$records,
-                               function(x) .archive_replayable(x$rec), logical(1)))
+  raw_records <- lapply(archive$records, .archive_record_from_raw)
+  requests <- lapply(raw_records, function(rec) {
+    if (!.archive_replayable(rec)) return(NULL)
+    req <- LLMR::llm_request_from_log(rec, on_unsupported = "quiet")
+    if (!isTRUE(req$complete) || !inherits(req$config, "llm_config") ||
+        !length(req$messages)) return(NULL)
+    req
+  })
+  eligible_idx <- which(!vapply(requests, is.null, logical(1)))
   if (!length(eligible_idx)) {
-    abort("No call records with request bodies and text are available to verify.")
+    abort("No call records with reconstructible requests and text are available to check for drift.")
   }
   eligible <- tibble::as_tibble(archive$manifest[eligible_idx, , drop = FALSE])
   unknown <- setdiff(strata, names(eligible))
@@ -264,7 +280,7 @@ archive_verify <- function(archive, sample = 0.05,
   groups <- unique(gkey)
   gid <- match(gkey, groups)
   sizes <- as.integer(tabulate(gid, nbins = length(groups)))
-  alloc <- .archive_sample_allocation(sizes, sample)
+  alloc <- .archive_sample_allocation(sizes, fraction = fraction, n = n)
 
   sampled_idx <- integer(0)
   sampled_group <- integer(0)
@@ -278,12 +294,8 @@ archive_verify <- function(archive, sample = 0.05,
     }
   }
 
-  recs <- lapply(sampled_idx, function(i) archive$records[[i]]$rec)
-  # Rebuild each archived call into (config, messages) via LLMR's log-replay
-  # helper, which canonicalizes the provider body and recovers its parameters.
-  # Rebuild each sampled call; warn-and-skip (rather than abort the whole
-  # verify) on a request shape that cannot be reconstructed.
-  reqs <- lapply(recs, LLMR::llm_request_from_log, on_unsupported = "warn")
+  recs <- raw_records[sampled_idx]
+  reqs <- requests[sampled_idx]
   configs <- lapply(reqs, `[[`, "config")
   messages <- lapply(reqs, `[[`, "messages")
   temperatures <- vapply(configs, function(cfg) {
@@ -291,21 +303,39 @@ archive_verify <- function(archive, sample = 0.05,
     if (is.null(v) || !length(v)) NA_real_ else suppressWarnings(as.numeric(v)[1])
   }, numeric(1))
 
-  experiments <- tibble::tibble(config = configs, messages = messages)
+  experiments <- tibble::tibble(
+    archive_idx = as.integer(sampled_idx),
+    config = configs,
+    messages = messages
+  )
   results <- if (is.null(.runner)) LLMR::call_llm_par(experiments, ...)
              else .runner(experiments, ...)
-  if (!is.data.frame(results) || !"response_text" %in% names(results)) {
-    abort("`.runner` must return a data frame with a `response_text` column.")
+  required <- c(names(experiments), "response_text")
+  if (!is.data.frame(results) || !all(required %in% names(results)) ||
+      nrow(results) != length(sampled_idx)) {
+    abort("`.runner` must return the sampled experiment rows with a `response_text` column.")
   }
-  if (nrow(results) != length(sampled_idx)) {
-    abort("`.runner` must return one row per sampled record.")
+  result_idx <- suppressWarnings(as.integer(results$archive_idx))
+  if (anyNA(result_idx) || anyDuplicated(result_idx) ||
+      !setequal(result_idx, sampled_idx)) {
+    abort("`.runner` must preserve sampled experiment row identity.")
+  }
+  results <- results[match(sampled_idx, result_idx), , drop = FALSE]
+  failed <- if ("success" %in% names(results)) {
+    which(!(results$success %in% TRUE))
+  } else {
+    integer(0)
+  }
+  failed <- union(failed, which(is.na(results$response_text)))
+  if (length(failed)) {
+    abort(sprintf("The runner failed for %d sampled record(s); drift was not computed.",
+                  length(failed)))
   }
 
   archived_text <- vapply(recs, function(r) as.character(r$text %||% NA_character_),
                           character(1))
   new_text <- as.character(results$response_text)
   exact <- trimws(new_text) == trimws(archived_text)
-  exact[is.na(exact)] <- FALSE
 
   archived_version <- vapply(recs, function(r)
     as.character(r$model_version %||% NA_character_), character(1))
@@ -376,9 +406,9 @@ print.archive_drift <- function(x, ...) {
 }
 
 # Largest-remainder allocation of a sample across strata.
-.archive_sample_allocation <- function(sizes, sample_size) {
-  if (sample_size <= 1) return(as.integer(ceiling(sample_size * sizes)))
-  total <- min(as.integer(sample_size), sum(sizes))
+.archive_sample_allocation <- function(sizes, fraction = NULL, n = NULL) {
+  if (!is.null(fraction)) return(as.integer(ceiling(fraction * sizes)))
+  total <- min(n, sum(sizes))
   if (total <= 0L) return(rep(0L, length(sizes)))
   quota <- total * sizes / sum(sizes)
   alloc <- floor(quota)

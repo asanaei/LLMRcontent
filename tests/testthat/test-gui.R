@@ -31,9 +31,37 @@ test_that("call_gold_set_mapped maps columns into a sealed gold set", {
     cat  = rep(c("policy", "community"), each = 6),
     stringsAsFactors = FALSE)
   g <- suppressWarnings(LLMRcontent:::call_gold_set_mapped(df, "body", "cat",
-        split = c(dev = 0.5, test = 0.5), stratify = TRUE, seal_test = TRUE))
+        split = c(dev = 0.5, test = 0.5), stratify = TRUE,
+        seal_holdout = TRUE))
   expect_s3_class(g, "gold_set")
   expect_true(isTRUE(g$sealed))
+})
+
+test_that("the coder bundle writes a flat CSV and a generic report", {
+  skip_if_not_installed("LLMR.shiny")
+  gold <- fix_gold(8)
+  protocol <- protocol_lock(protocol(fix_codebook(), fix_config(),
+                                     label = "bundle"))
+  validation <- validate_protocol(protocol, gold,
+                                  .runner = fake_runner_perfect)
+  coded <- code_corpus(data.frame(text = gold$data$text), protocol, "text",
+                       .runner = fake_runner_perfect)
+  path <- tempfile(fileext = ".zip")
+  out_dir <- tempfile("bundle-")
+  dir.create(out_dir)
+  on.exit(unlink(c(path, out_dir), recursive = TRUE), add = TRUE)
+
+  expect_invisible(LLMRcontent:::bundle_coder_artifacts(
+    coded, validation, gold, protocol, path
+  ))
+  utils::unzip(path, exdir = out_dir)
+
+  exported <- utils::read.csv(file.path(out_dir, "coded.csv"))
+  expect_equal(nrow(exported), nrow(coded$data))
+  expect_identical(exported$label, coded$data$label)
+  expect_match(paste(readLines(file.path(out_dir, "summary.txt")),
+                     collapse = "\n"),
+               "methods report from LLMR::report", fixed = TRUE)
 })
 
 test_that("the GUI assembles when its suggested packages are present", {
@@ -45,29 +73,10 @@ test_that("the GUI assembles when its suggested packages are present", {
   expect_true(is.function(LLMRcontent:::.content_gui_server))
 })
 
-test_that(".content_gui_require errors helpfully when a GUI package is missing", {
-  need <- c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny")
-  if (all(vapply(need, requireNamespace, logical(1), quietly = TRUE))) {
-    expect_true(isTRUE(LLMRcontent:::.content_gui_require()))
-  } else {
-    expect_error(LLMRcontent:::.content_gui_require(),
-                 "GUI needs these packages")
-  }
-})
-
-test_that("install_gui_deps routes CRAN deps vs the LLMR.shiny special case", {
-  # Mock install.packages so nothing is actually installed, and force every
-  # have() check to report "missing" so the install branch runs for each dep.
-  installed <- character(0)
-  testthat::local_mocked_bindings(
-    install.packages = function(pkgs, ...) installed <<- c(installed, pkgs),
-    .package = "utils")
+test_that(".content_gui_require gives ordinary installation instructions", {
   testthat::local_mocked_bindings(
     requireNamespace = function(package, ...) FALSE,
-    .package = "base")
-  status <- install_gui_deps(quiet = TRUE)
-  # CRAN deps were attempted; LLMR.shiny reported unavailable (FALSE), not an error.
-  expect_true(all(c("shiny", "bslib", "DT", "ggplot2") %in% installed))
-  expect_false(status[["LLMR.shiny"]])
-  expect_named(status, c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))
+    .package = "base"
+  )
+  expect_error(LLMRcontent:::.content_gui_require(), "install\\.packages")
 })

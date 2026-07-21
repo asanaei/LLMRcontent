@@ -202,7 +202,7 @@ mod_valid_server <- function(id, shared) {
       shiny::req(audit())
       LLMRcontent::audit_curve(audit(), plot = TRUE)
     })
-    output$report <- shiny::renderText({ shiny::req(audit()); report_text(LLMRcontent::audit_report(audit())) })
+    output$report <- shiny::renderText({ shiny::req(audit()); report_text(LLMR::report(audit())) })
   })
 }
 

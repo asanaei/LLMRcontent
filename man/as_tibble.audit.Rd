@@ -12,8 +12,7 @@
 \item{...}{Passed to \code{\link[tibble:as_tibble]{tibble::as_tibble()}}.}
 }
 \value{
-The per-cell tibble with the extra \code{audit} class and audit
-attributes stripped.
+The per-cell tibble.
 }
 \description{
 Coerce an audit to a tibble

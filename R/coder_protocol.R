@@ -5,16 +5,7 @@
 # split or code a corpus, so the thing that was validated is provably the
 # thing that was used.
 
-#' Default parser: match the reply to a codebook label
-#'
-#' Trims the model's reply and matches it against the codebook's labels,
-#' exactly first, then case-insensitively; anything else becomes `NA` (a
-#' parse failure you will see in the validation tables, not a silently
-#' invented category).
-#'
-#' @return A function `(text, labels) -> label or NA` suitable for
-#'   [protocol()]'s `parser` argument.
-#' @export
+# Internal default parser: normalize a reply against the codebook labels.
 parse_label <- function() {
   function(text, labels) .normalize_label(text, labels)
 }
@@ -29,7 +20,8 @@ parse_label <- function() {
 #'   `NULL` uses a sensible default. Placeholders are substituted literally,
 #'   so braces in the coded text itself are safe.
 #' @param parser A function `(text, labels) -> label` turning a model reply
-#'   into one of the codebook's labels (or `NA`). Default [parse_label()].
+#'   into one of the codebook's labels (or `NA`). `NULL` uses the package's
+#'   label-matching parser.
 #' @param replicates How many times each unit is coded before its modal label is
 #'   used by [tune_protocol()], [validate_protocol()], and [code_corpus()]
 #'   (replicates make model self-disagreement measurable; see
@@ -46,8 +38,9 @@ parse_label <- function() {
 #' protocol_lock(p)
 #' @seealso [protocol_lock()], [tune_protocol()], [validate_protocol()]
 #' @export
-protocol <- function(codebook, config, prompt = NULL, parser = parse_label(),
+protocol <- function(codebook, config, prompt = NULL, parser = NULL,
                      replicates = 1L, label = NULL) {
+  if (is.null(parser)) parser <- parse_label()
   stopifnot(inherits(codebook, "codebook"), is.function(parser))
   if (!inherits(config, "llm_config")) {
     abort("`config` must be an LLMR::llm_config() object.")

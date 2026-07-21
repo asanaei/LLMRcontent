@@ -33,9 +33,6 @@ test_that("gold_set stores and guards the holdout name", {
              split = c(dev = 0.5, holdout = 0.5), holdout = "holdout"),
     "holdout split \\('holdout'\\)")
 
-  # objects saved before the field existed fall back to "test"
-  g$holdout <- NULL
-  expect_identical(LLMRcontent:::.gold_holdout(g), "test")
 })
 
 test_that("tuning refuses the named holdout; validation defaults to it", {
@@ -72,7 +69,7 @@ test_that("tuning refuses the named holdout; validation defaults to it", {
   expect_equal(nrow(gold_ledger(g)), 1L)
 
   # and the report heads the ledger with the holdout's name
-  rep <- coding_report(v, g, pl)
+  rep <- LLMR::report(v, gold = g, protocol = pl)
   expect_match(paste(unclass(rep), collapse = "\n"), "HOLDOUT-SPLIT LEDGER")
 })
 
@@ -90,7 +87,7 @@ test_that("gold_correct audits and ledgers the named holdout end to end", {
   gold_rows <- c(1:20, 31:50)
   gold <- gold_set(data.frame(text = texts[gold_rows],
                               label = truth[gold_rows]),
-                   text = "text", labels = "label",
+                   text = "text", label = "label",
                    split = c(holdout = 1), holdout = "holdout")
   fake <- function(experiments, ...) {
     is_a <- grepl("truth=A", experiments$text, fixed = TRUE)

@@ -4,7 +4,7 @@
 \alias{diagnostics.audit}
 \title{Audit diagnostics through LLMR's shared generic}
 \usage{
-diagnostics.audit(x, reference = 1L, flip = sign_flip(), ...)
+\method{diagnostics}{audit}(x, reference = 1L, flip = sign_flip(), ...)
 }
 \arguments{
 \item{x}{An \code{\link[=audit_run]{audit_run()}} result.}
@@ -17,8 +17,8 @@ diagnostics.audit(x, reference = 1L, flip = sign_flip(), ...)
 }
 \value{
 A one-row tibble with \code{n_cells}, \code{reference_estimate},
-\code{sign_agreement}, \code{min}, \code{median}, \code{max}, \code{iqr}, \code{n_failed_cells}, and
-\code{fragility}.
+\code{sign_agreement}, \code{min}, \code{median}, \code{max}, \code{iqr}, \code{n_failed_cells},
+\code{fragility}, and \code{fragility_status}.
 }
 \description{
 Combines \code{\link[=audit_stability]{audit_stability()}} with \code{\link[=audit_fragility]{audit_fragility()}} so callers using

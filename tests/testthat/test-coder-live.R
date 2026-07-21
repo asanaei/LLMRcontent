@@ -13,13 +13,13 @@ test_that("live: a one-protocol tournament runs end to end on groq", {
     data.frame(text = c("What a wonderful day!", "This is a disaster.",
                         "I love this result.", "Everything went wrong."),
                label = c("positive", "negative", "positive", "negative")),
-    text = "text", labels = "label", split = c(dev = 0.5, test = 0.5))
+    text = "text", label = "label", split = c(dev = 0.5, test = 0.5))
   cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
   p <- protocol(cb, cfg, label = "gpt-oss-20b")
 
   res <- tune_protocol(p, g, split = "dev", progress = FALSE)
   expect_s3_class(res, "protocol_tuning")
-  expect_gte(res$accuracy[1], 0.5)
+  expect_gte(res$table$accuracy[1], 0.5)
 
   v <- validate_protocol(protocol_lock(p), g, progress = FALSE)
   expect_equal(nrow(gold_ledger(g)), 1L)

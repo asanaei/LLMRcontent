@@ -10,14 +10,14 @@
 \item{x}{A \code{protocol_validation} object.}
 
 \item{...}{Must include \verb{gold =} and \verb{protocol =}; additional arguments
-are forwarded to \code{\link[=coding_report]{coding_report()}}.}
+are forwarded to report construction.}
 }
 \value{
 A \code{coding_report} object.
 }
 \description{
-\code{LLMR::report()} for a \code{protocol_validation} delegates to
-\code{\link[=coding_report]{coding_report()}}. The validation object stores scores but not the gold
-set or the locked protocol, so calls must pass \verb{gold =} and \verb{protocol =}
-through \code{...}.
+\code{LLMR::report()} for a \code{protocol_validation} assembles the report from the
+validation, gold set, and locked protocol. The validation object stores
+scores but not the latter two objects, so calls must pass \verb{gold =} and
+\verb{protocol =} through \code{...}.
 }

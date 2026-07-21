@@ -20,7 +20,7 @@ fix_gold <- function(n = 8, seed = 110, ...) {
   labs <- rep(c("positive", "negative"), length.out = n)
   suppressWarnings(   # tiny fixtures trip the small-test-split warning
     gold_set(data.frame(text = texts, label = labs),
-             text = "text", labels = "label",
+             text = "text", label = "label",
              split = c(dev = 0.5, test = 0.5), ...))
 }
 

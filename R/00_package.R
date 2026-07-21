@@ -30,8 +30,8 @@
 #' recomputation. [archive_redact()] removes prompts and response text while
 #' retaining the archive's hash records.
 #'
-#' The optional Shiny interface runs these functions interactively. Use
-#' [install_gui_deps()] to install its suggested packages and
+#' The optional Shiny interface runs these functions interactively. Install its
+#' suggested packages with [utils::install.packages()] and use
 #' [run_content_studio()] to start it.
 #'
 #' @keywords internal

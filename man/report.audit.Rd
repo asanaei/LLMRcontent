@@ -4,15 +4,16 @@
 \alias{report.audit}
 \title{Report an audit through LLMR's shared generic}
 \usage{
-report.audit(x, ...)
+\method{report}{audit}(x, ...)
 }
 \arguments{
 \item{x}{An \code{\link[=audit_run]{audit_run()}} result.}
 
-\item{...}{Passed to \code{\link[=audit_report]{audit_report()}}.}
+\item{...}{Unused; accepted for generic compatibility.}
 }
 \value{
-An \code{audit_report}.
+Character lines of class \code{audit_report}, with grid dimensions,
+stability metrics, fragility, and parse-failure accounting.
 }
 \description{
 A "passed audit" badge is deliberately absent: the deliverable is the

@@ -4,12 +4,12 @@
 \alias{audit_add_models}
 \title{Add the model arm of the grid}
 \usage{
-audit_add_models(plan, configs)
+audit_add_models(plan, config)
 }
 \arguments{
 \item{plan}{An \code{\link[=audit_plan]{audit_plan()}}.}
 
-\item{configs}{A named list of \code{LLMR::llm_config()} objects. Spanning
+\item{config}{A named list of \code{LLMR::llm_config()} objects. Spanning
 model \emph{families} (not just sizes of one family) is what makes the arm
 informative; agreement within one family is family resemblance, not
 robustness.}

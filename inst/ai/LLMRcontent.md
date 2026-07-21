@@ -27,8 +27,9 @@ remotes::install_github("asanaei/LLMRcontent")   # depends on LLMR (>= 0.8.6)
 ```
 
 The optional Shiny interface calls the same package functions. Install its
-dependencies with `install_gui_deps()`, then start it with
-`run_content_studio()`. Use the functions below in scripts.
+dependencies with
+`install.packages(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))`,
+then start it with `run_content_studio()`. Use the functions below in scripts.
 
 ## Coding
 
@@ -47,39 +48,42 @@ cb_category(label, definition, include = NULL, exclude = NULL,
 codebook(name, unit, categories, instructions = NULL, version = "1.0")
 codebook_labels(x); codebook_hash(x); format_codebook(x)
 
-gold_set(data, text, labels, split = c(dev = 0.6, test = 0.4),
-         holdout = "test", stratify = TRUE, seal_test = TRUE,
+gold_set(data, text, label, split = c(dev = 0.6, test = 0.4),
+         holdout = "test", stratify = TRUE, seal_holdout = TRUE,
          coders = NULL, id = NULL)
 gold_split(x, split = "dev"); gold_ledger(x)
 gold_size(expected_agreement = 0.85, ci_width = 0.10, conf = 0.95,
           n_grid = c(50, 100, 200, 300, 500, 800), sims = 2000)
 
-protocol(codebook, config, prompt = NULL, parser = parse_label(),
+protocol(codebook, config, prompt = NULL, parser = NULL,
          replicates = 1L, label = NULL)
 protocol_lock(x)
 
 tune_protocol(protocols, gold, split = "dev", .runner = NULL, ...)
 validate_protocol(protocol, gold, split = NULL, .runner = NULL, ...)
   # split = NULL means the gold set's holdout split ("test" by default)
-code_corpus(corpus, protocol, text, .runner = NULL, id = NULL, ...)
+code_corpus(corpus, protocol, text, id = NULL, .runner = NULL, ...)
 
 gold_correct(coded, gold, conf = 0.95)
 
 coder_agreement(x, cols = NULL)
-coding_report(validation, gold, protocol)
-export_caqdas(coded, path, format = c("csv", "jsonl"))
 
 LLMR::diagnostics(x, ...)
 LLMR::report(x, ...)
 tibble::as_tibble(x, ...)
 ```
 
+`tune_protocol()` returns `table`, `per_category`, and `split` fields.
+`code_corpus()` returns `data`, protocol identifiers, the text and label column
+names, the optional id column name, and the codebook labels as ordinary fields.
+Use `tibble::as_tibble()` to extract either main table.
+
 ### Canonical workflow
 
 ```r
 library(LLMRcontent)
 
-gold <- gold_set(labeled_df, text = "text", labels = "label")
+gold <- gold_set(labeled_df, text = "text", label = "label")
 
 cb <- codebook("tone", "one sentence",
   list(cb_category("positive", "Approving or hopeful."),
@@ -101,6 +105,7 @@ LLMR::diagnostics(correction)
 LLMR::report(v, gold = gold, protocol = winner)
 tibble::as_tibble(tuning)
 tibble::as_tibble(correction)
+tibble::as_tibble(coded)
 ```
 
 ### Coding rules
@@ -121,7 +126,11 @@ tibble::as_tibble(correction)
   analysis concerns variation across model responses.
 - Custom prompts must contain `{text}`; `{codebook}` inserts `format_codebook()`.
 - `LLMR::report()` on a `protocol_validation` needs `gold =` and
-  `protocol =` so it can delegate to `coding_report()`.
+  `protocol =` to assemble the ledger and instrument context.
+- `code_corpus()` returns a `coded_corpus`. Its `data`, `protocol_hash`,
+  `protocol_label`, `text`, `label`, `id`, and `labels` fields carry the coded
+  rows and linkage provenance. Use `tibble::as_tibble()` for the row table.
+- `gold_size()` returns `recommended_size` and the full `candidates` grid.
 
 ### Coding error meanings
 
@@ -146,23 +155,26 @@ plan, then call `audit_run()`. The result contains one estimate per grid cell.
 counts how many grid dimensions separate the reference cell from the nearest
 cell that changes the stated conclusion.
 
+An `audit` stores its per-cell table in `cells`, its typed unit-level trail in
+`units`, and the originating `audit_plan` in `plan`. `audit_units()` returns
+the unit trail and `tibble::as_tibble()` returns the cell table.
+
 ### Core API (exact signatures)
 
 ```r
 audit_plan(data, text, estimator, labels, prompt)
-audit_add_models(plan, configs)              # NAMED list of llm_config objects
+audit_add_models(plan, config)               # NAMED list of llm_config objects
 audit_add_prompts(plan, ...)                 # named templates with {text}
 audit_add_perturbations(plan, label_order = NULL, temperature = NULL)
 
 audit_run(plan, .runner = NULL, ...)         # the full grid, one estimate per cell
 audit_units(audit)                           # unit-level labels per cell (+ response_id)
 audit_stability(audit, reference = 1L)
-audit_curve(audit, plot = interactive())
+audit_curve(audit, plot = FALSE)
 audit_fragility(audit, reference = 1L, flip = sign_flip())
 sign_flip(); threshold_flip(at)              # pluggable conclusion rules
 audit_placebo(audit, type = c("label_permutation", "irrelevant_text"),
               reps = 200L, texts = NULL, .runner = NULL, ...)
-audit_report(audit, ...)
 LLMR::diagnostics(audit)
 LLMR::report(audit)
 tibble::as_tibble(audit)
@@ -196,12 +208,13 @@ audit <- audit_plan(
   audit_run()
 
 audit_stability(audit)
-audit_fragility(audit)        # smallest #choices that flips the conclusion
+fragility <- audit_fragility(audit)
+fragility$fragility           # smallest number of changed choices
+fragility$flipping_cells      # cells attaining that distance
 LLMR::diagnostics(audit)
 tibble::as_tibble(audit)
 set.seed(110)
 audit_placebo(audit)          # permutation null per cell; zero new calls
-audit_report(audit)
 LLMR::report(audit)
 ```
 
@@ -216,8 +229,9 @@ LLMR::report(audit)
 - `sign_flip()` flags nothing when the reference estimate is exactly 0
   (no sign to flip); use `threshold_flip(at =)` there and for one-sided
   or bounded estimands.
-- `audit_fragility() == Inf` means that no cell in the specified grid meets
-  the selected flip rule.
+- `audit_fragility()$fragility == Inf` with `status = "no_flip"` means that no
+  cell in the specified grid meets the selected flip rule. A failed reference
+  has `status = "reference_failed"`.
 - `audit_placebo(type = "label_permutation")` flags pure-marginal estimands
   as `degenerate` with `p = NA`; that flag is the correct output, not a
   failure. `type = "irrelevant_text"` needs researcher-supplied
@@ -257,22 +271,18 @@ LLMR::llm_log_disable()
 
 ```r
 archive_build(log, name = NULL)         # parse JSONL -> content-addressed archive
-archive_current(name = NULL)            # archive whatever log is active now
 archive_seal(archive)                   # one root hash; cite it in the paper
 archive_check(archive, results = NULL)  # integrity + completeness linting
 archive_redact(archive)                 # strip text, keep hash families
-verifiability_horizon(archive, open_patterns)  # open_patterns defaults to an open-weight name regex
-archive_appendix(archive, ...)          # the reproducibility appendix
-archive_diff(a, b)                      # compare runs by request identity
-archive_write(archive, dir); archive_read(dir)
+archive_write(archive, dir, overwrite = FALSE); archive_read(dir)
 
-archive_replay(archive)                 # runner that answers calls from the archive
-archive_verify(archive, sample = 0.05,  # re-issue a stratified sample live
-               strata = c("provider", "model"), .runner = NULL, ...)
-reset(x, ...)                           # reset an archive replayer
+archive_replay(archive, replay_mode = c("queue", "first", "strict_once"))
+archive_drift(archive, fraction = NULL, n = NULL,
+              strata = c("provider", "model"), .runner = NULL, ...)
+LLMR::reset(x, ...)                     # reset an archive replayer
 
 LLMR::diagnostics(archive)              # one-row machine-readable summary
-LLMR::report(archive)                   # delegates to archive_appendix()
+LLMR::report(archive)                   # reproducibility appendix
 tibble::as_tibble(archive)              # manifest tibble
 ```
 
@@ -282,7 +292,7 @@ tibble::as_tibble(archive)              # manifest tibble
 library(LLMRcontent)
 a <- archive_seal(archive_build("study.jsonl", name = "smith2026"))
 archive_check(a, results = my_results)  # results needs a response_id column
-archive_appendix(a)                     # includes the verifiability horizon
+LLMR::report(a)                         # includes verifiability conclusions
 LLMR::diagnostics(a)                    # n_records, seal, redaction, horizon counts
 archive_write(a, "replication/llm-archive")
 
@@ -307,8 +317,7 @@ retains call counts, models, parameters, timings, and token totals.
 
 - `LLMR::diagnostics(archive)` returns a one-row tibble with `n_records`,
   `sealed`, `root`, `redacted`, `n_open_pinnable`, and `n_api_contingent`.
-- `LLMR::report(archive)` returns the same `archive_appendix` object as
-  `archive_appendix(archive, ...)`.
+- `LLMR::report(archive)` returns the printable reproducibility appendix.
 - `tibble::as_tibble(archive)` returns the manifest tibble.
 
 ### Archive rules
@@ -319,16 +328,20 @@ retains call counts, models, parameters, timings, and token totals.
 - Keep `response_id` in result frames. `call_llm_par()` provides it and
   `audit_units()` carries it, allowing `archive_check()` to match result rows
   to logged calls.
-- The horizon's open-weight classification is a name heuristic; pass
-  `open_patterns` when you serve something unusual.
+- The open-weight classification in diagnostics and reports is a name
+  heuristic; pass `open_patterns` through the generic when you serve something
+  unusual.
 - `archive_replay()` matches calls by the request hash from
   `LLMR::llm_request_hash()`, rebuilt from each stored raw log line. The hash
   covers provider, model, canonical message content, and generation parameters.
   Repeated requests are served in archived order. Records without message
   content are excluded, and redacted archives cannot be replayed.
-- `archive_verify()` re-issues real calls; the `.runner` argument is the
-  offline test seam. Exact reproduction is expected only for
-  temperature-0 calls on pinned open-weight backends.
+- `archive_drift()` re-issues real calls. Supply either `fraction` or `n`; when
+  neither is supplied it samples fraction 0.05. The `.runner` argument is the
+  offline test seam. Exact reproduction is expected only for temperature-0
+  calls on pinned open-weight backends.
+- `archive_write()` refuses an existing target directory unless
+  `overwrite = TRUE` is explicit.
 
 ### Archive error meanings
 
@@ -345,7 +358,9 @@ Execution functions accept a `.runner` in place of the default provider call.
 The runner receives an `experiments` tibble with `config` and `messages` list
 columns. It must return that data with a `response_text` column. Token columns
 are retained when present, and supplied `response_id` values remain available
-to functions that keep the unit-level call records.
+to functions that keep the unit-level call records. When a runner supplies a
+`success` column, failed rows abort the operation rather than becoming labels
+or estimates.
 
 ```r
 deterministic_coder <- function(experiments, ...) {

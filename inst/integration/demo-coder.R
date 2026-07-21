@@ -4,7 +4,7 @@
 # run it yourself. It exercises the flagship coder path end to end:
 #   codebook() -> gold_set() -> protocol() -> protocol_lock()
 #   -> tune_protocol() (live, ranks on dev)
-#   -> validate_protocol() (live, dev) -> coding_report()
+#   -> validate_protocol() (live, dev) -> LLMR::report()
 #   -> code_corpus() (live, two held-out sentences: deployment coding)
 #
 # All sentences are authored for this demo (no copyrighted text). The two stance
@@ -64,9 +64,9 @@ run_coder_demo <- function(provider = Sys.getenv("LLMR_DEMO_PROVIDER", "groq"),
 
   # Gold set split dev/test; seal the test half so it cannot leak into tuning.
   gold <- suppressWarnings(
-    gold_set(units, text = "text", labels = "label",
+    gold_set(units, text = "text", label = "label",
              split = c(dev = 0.5, test = 0.5),
-             stratify = TRUE, seal_test = TRUE))
+             stratify = TRUE, seal_holdout = TRUE))
 
   # Reasoning models (e.g. gpt-oss-20b) spend tokens on hidden reasoning before
   # the visible answer; too small a budget yields an empty reply that parses to
@@ -87,7 +87,7 @@ run_coder_demo <- function(provider = Sys.getenv("LLMR_DEMO_PROVIDER", "groq"),
   # Live: rank the (single) protocol on dev, validate on dev, build the report.
   tune <- tune_protocol(list(pl), gold, split = "dev", .runner = .live_runner)
   v <- validate_protocol(pl, gold, split = "dev", .runner = .live_runner)
-  rep <- coding_report(v, gold = gold, protocol = pl)
+  rep <- LLMR::report(v, gold = gold, protocol = pl)
 
   # Live deployment coding: code two fresh, unlabeled sentences with the locked
   # protocol (exercises code_corpus() and the modal-label machinery).
@@ -106,5 +106,5 @@ if (sys.nframe() == 0L) {
   cat("\n==== LLMRcontent coder report ====\n"); print(res$report)
   cat("\n==== protocol tuning ====\n"); print(res$tuning)
   cat("\n==== deployment coding (code_corpus) ====\n")
-  print(res$coded[, c("text", "label", "label_share")])
+  print(res$coded$data[, c("text", "label", "label_share")])
 }

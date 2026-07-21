@@ -4,12 +4,15 @@
 \alias{archive_write}
 \title{Write an archive to a directory}
 \usage{
-archive_write(archive, dir)
+archive_write(archive, dir, overwrite = FALSE)
 }
 \arguments{
 \item{archive}{An \code{archive}.}
 
 \item{dir}{Target directory (created if missing).}
+
+\item{overwrite}{If \code{FALSE} (default), refuse an existing directory. If
+\code{TRUE}, replace its archive files.}
 }
 \value{
 \code{dir}, invisibly.
@@ -23,7 +26,7 @@ writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
   '"kind":"call","provider":"groq","model":"openai/gpt-oss-20b",',
   '"usage":{"sent":5,"rec":2},"response_id":"r-1","text":"reply"}'), log)
 a <- archive_seal(archive_build(log, name = "demo"))
-dir <- file.path(tempdir(), "demo-archive")
+dir <- tempfile("demo-archive-")
 archive_write(a, dir)
 b <- archive_read(dir)
 archive_check(b)          # reading and verifying are separate acts

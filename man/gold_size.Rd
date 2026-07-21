@@ -24,8 +24,8 @@ gold_size(
 \item{sims}{Monte Carlo draws per candidate size.}
 }
 \value{
-The smallest n in \code{n_grid} meeting the target, with the simulated
-widths as an attribute.
+A \code{gold_size} object with \code{recommended_size} and a \code{candidates}
+tibble containing \code{n}, \code{mean_ci_width}, and \code{meets_target}.
 }
 \description{
 Answers, by simulation, the budgeting question every project starts with:

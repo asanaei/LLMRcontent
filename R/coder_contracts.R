@@ -8,18 +8,19 @@
 # text), then a content hash of the text. Returns the two key vectors and a
 # human label for messages. The id path requires the same id column on both
 # objects; a partial id (one side only) falls back to the text hash with a note.
-.resolve_gold_link <- function(coded, gold, g, text_col) {
-  coded_id <- attr(coded, "id")
+.resolve_gold_link <- function(coded, gold, g) {
+  coded_data <- coded$data
+  coded_id <- coded$id
   gold_id <- gold$id
   if (!is.null(coded_id) && !is.null(gold_id)) {
-    if (!coded_id %in% names(coded)) {
+    if (!coded_id %in% names(coded_data)) {
       abort(sprintf("`coded` declares id column '%s' but it is absent; re-run code_corpus().", coded_id))
     }
     if (!gold_id %in% names(g)) {
       abort(sprintf("gold set declares id column '%s' but it is absent from its data.", gold_id))
     }
     return(list(by = "id",
-                corpus_key = as.character(coded[[coded_id]]),
+                corpus_key = as.character(coded_data[[coded_id]]),
                 gold_key = as.character(g[[gold_id]])))
   }
   if (xor(is.null(coded_id), is.null(gold_id))) {
@@ -28,10 +29,10 @@
       "instead. Pass the same `id` to both gold_set() and code_corpus() to",
       "link by id."))
   }
-  corpus_key <- if (".text_hash" %in% names(coded)) {
-    as.character(coded[[".text_hash"]])
+  corpus_key <- if (".text_hash" %in% names(coded_data)) {
+    as.character(coded_data[[".text_hash"]])
   } else {
-    .text_hash(coded[[text_col]])
+    .text_hash(coded_data[[coded$text]])
   }
   gold_key <- if (".text_hash" %in% names(g)) {
     as.character(g[[".text_hash"]])
@@ -101,7 +102,7 @@
 #'
 #' Using holdout truth is a look at the holdout split, so when the gold
 #' set is sealed the event is appended to the ledger and appears in
-#' [coding_report()] like any other evaluation.
+#' `LLMR::report()` like any other evaluation.
 #'
 #' @examples
 #' \dontrun{
@@ -111,7 +112,7 @@
 #' gold_data <- data.frame(
 #'   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
 #'   label = rep(c("positive", "negative"), each = 10))
-#' gold <- gold_set(gold_data, text = "text", labels = "label",
+#' gold <- gold_set(gold_data, text = "text", label = "label",
 #'                  split = c(test = 1))
 #' corpus <- data.frame(text = c(gold_data$text,
 #'                               "a hopeful note", "an alarming figure"))
@@ -134,26 +135,29 @@
 #' @seealso [code_corpus()], [gold_set()], [validate_protocol()].
 #' @export
 gold_correct <- function(coded, gold, conf = 0.95) {
-  stopifnot(is.data.frame(coded), inherits(gold, "gold_set"))
+  stopifnot(inherits(coded, "coded_corpus"), inherits(gold, "gold_set"))
   if (!is.numeric(conf) || length(conf) != 1L || is.na(conf) ||
       conf <= 0 || conf >= 1) {
     abort("`conf` must be a number between 0 and 1.")
   }
-  labels <- attr(coded, "labels")
+  coded_data <- coded$data
+  labels <- coded$labels
   if (is.null(labels) || !length(labels)) {
-    abort("`coded` must carry codebook labels in attr(coded, 'labels'); re-run code_corpus().")
+    abort("`coded` must carry its codebook labels; re-run code_corpus().")
   }
   labels <- as.character(labels)
-  text_col <- attr(coded, "text")
+  text_col <- coded$text
   if (!is.character(text_col) || length(text_col) != 1L || is.na(text_col) ||
-      !nzchar(text_col) || !text_col %in% names(coded)) {
-    abort("`coded` must carry its text column in attr(coded, 'text'); re-run code_corpus().")
+      !nzchar(text_col) || !text_col %in% names(coded_data)) {
+    abort("`coded` must carry its text column; re-run code_corpus().")
   }
-  if (!"label" %in% names(coded)) {
-    abort("`coded` must contain a `label` column.")
+  label_col <- coded$label
+  if (!is.character(label_col) || length(label_col) != 1L ||
+      !label_col %in% names(coded_data)) {
+    abort("`coded` must carry its label column; re-run code_corpus().")
   }
 
-  llm <- vapply(as.character(coded[["label"]]), .normalize_label,
+  llm <- vapply(as.character(coded_data[[label_col]]), .normalize_label,
                 character(1), labels = labels, USE.NAMES = FALSE)
   n_parse_failures <- sum(is.na(llm))
   corpus_ok <- !is.na(llm)
@@ -170,7 +174,7 @@ gold_correct <- function(coded, gold, conf = 0.95) {
   # code_corpus(), is the only key that disambiguates units with identical
   # text; absent one, a content hash of the text links robustly but cannot
   # tell true duplicates apart, so duplicates among audited units are refused.
-  link <- .resolve_gold_link(coded, gold, g, text_col)
+  link <- .resolve_gold_link(coded, gold, g)
   corpus_key <- link$corpus_key
   gold_key <- link$gold_key
 
@@ -203,7 +207,7 @@ gold_correct <- function(coded, gold, conf = 0.95) {
       "Add a stable `id` column to both gold_set() and code_corpus() to disambiguate."))
   }
 
-  gold_lab <- vapply(as.character(g[[gold$labels]][matched]), .normalize_label,
+  gold_lab <- vapply(as.character(g[[gold$label]][matched]), .normalize_label,
                      character(1), labels = labels, USE.NAMES = FALSE)
   if (anyNA(gold_lab)) {
     abort(sprintf("%d matched gold label(s) are not among the codebook labels on `coded`.",
@@ -244,8 +248,8 @@ gold_correct <- function(coded, gold, conf = 0.95) {
   })
   tab <- do.call(rbind, rows)
 
-  protocol_hash <- attr(coded, "protocol_hash") %||% NA_character_
-  protocol_label <- attr(coded, "protocol_label") %||% NA_character_
+  protocol_hash <- coded$protocol_hash
+  protocol_label <- coded$protocol_label
   if (isTRUE(gold$sealed)) {
     .gold_ledger_append(gold, holdout, protocol_hash, protocol_label,
                         n_audit, accuracy_audit)
@@ -287,7 +291,7 @@ print.gold_correction <- function(x, ...) {
                         x$n_audit_parse_failures) else "",
               substr(x$protocol_hash, 1, 12)))
   cat(sprintf("  The audit uses the %sholdout split ('%s'), linked into the corpus by %s.\n",
-              if (isTRUE(x$sealed)) "sealed " else "", x$holdout %||% "test",
+              if (isTRUE(x$sealed)) "sealed " else "", x$holdout,
               x$link_by %||% "text hash"))
   outside <- x$table$share_corrected < 0 | x$table$share_corrected > 1
   if (any(outside, na.rm = TRUE)) {

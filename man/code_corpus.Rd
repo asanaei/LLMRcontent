@@ -4,7 +4,7 @@
 \alias{code_corpus}
 \title{Code a corpus with a locked protocol}
 \usage{
-code_corpus(corpus, protocol, text, .runner = NULL, id = NULL, ...)
+code_corpus(corpus, protocol, text, id = NULL, .runner = NULL, ...)
 }
 \arguments{
 \item{corpus}{A data frame.}
@@ -13,22 +13,24 @@ code_corpus(corpus, protocol, text, .runner = NULL, id = NULL, ...)
 
 \item{text}{Name of the text column in \code{corpus}.}
 
-\item{.runner}{Internal seam for tests: a function \verb{(experiments, ...)}
-returning the experiments with a \code{response_text} column. Default
-\code{LLMR::call_llm_par()}.}
-
 \item{id}{Optional name of a stable unit-identifier column in \code{corpus}. Carry
 it through so \code{\link[=gold_correct]{gold_correct()}} can link audit units to corpus rows by id,
 the only way to disambiguate rows that share identical text. Use the same
 \code{id} here as in \code{\link[=gold_set]{gold_set()}}.}
 
+\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
+receives a data frame with \code{config} and \code{messages} list-columns and returns
+those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par()}.}
+
 \item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
 }
 \value{
-\code{corpus} plus \code{label} (modal label), \code{label_share} (share of
-replicates agreeing with it), \code{parse_failures} per unit, a \code{.text_hash}
-linkage column, and when \code{protocol$replicates > 1} the individual replicate
-columns \code{label_rep1}, \code{label_rep2}, ....
+A \code{coded_corpus} object. Its \code{data} field contains \code{corpus} plus
+\code{label} (modal label), \code{label_share} (share of replicates agreeing with
+it), \code{parse_failures} per unit, a \code{.text_hash} linkage column, and when
+\code{protocol$replicates > 1} the individual replicate columns \code{label_rep1},
+\code{label_rep2}, .... Protocol and linkage fields are stored alongside the
+data.
 }
 \description{
 Applies the locked protocol to every text, with \code{protocol$replicates}

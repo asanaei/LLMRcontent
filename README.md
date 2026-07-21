@@ -18,7 +18,7 @@ it to a corpus. `gold_correct()` uses matched holdout errors to estimate
 corrected category prevalences:
 
 ```r
-g <- gold_set(data, text = "text", labels = "label")        # sealed test split
+g <- gold_set(data, text = "text", label = "label")         # sealed test split
 p <- protocol_lock(protocol(codebook, config))              # hash-locked instrument
 v <- validate_protocol(p, g)                                # evaluate on the sealed split
 coded <- code_corpus(corpus, p, "text")                     # apply to the full corpus
@@ -31,11 +31,12 @@ summarize how the estimates change:
 
 ```r
 plan <- audit_plan(data, "text", estimator, labels, prompt)
-plan <- audit_add_models(plan, configs)
+plan <- audit_add_models(plan, config)
 plan <- audit_add_perturbations(plan, label_order = c("as_given", "reversed"),
                                 temperature = c(0, 0.7))
 a <- audit_run(plan)
-audit_stability(a); audit_fragility(a)                      # sign, rank, fragility
+audit_stability(a)
+audit_fragility(a)                                          # flipping cells + distance
 ```
 
 **Archives** store LLMR audit logs for checking and replay. `archive_build()`
@@ -46,19 +47,21 @@ ar <- archive_build(log)                                    # content-addressed
 ar <- archive_seal(ar)                                      # frozen under a root hash
 archive_check(ar)                                           # integrity + completeness
 replay <- archive_replay(ar)                                # recompute offline, no keys
+archive_drift(ar, n = 10)                                   # optional live drift sample
 ```
 
 `LLMR::diagnostics()` returns machine-readable summaries for validation,
 correction, audit, and archive objects. `LLMR::report()` creates draft reports
-for validation, audit, and archive objects. `tibble::as_tibble()` extracts
-tabular results.
+for validation, audit, and archive objects. Rich results keep provenance in
+named fields: tuning has `table`, `per_category`, and `split`; audits have
+`cells`, `units`, and `plan`. `tibble::as_tibble()` extracts their main tables.
 
 ## Shiny interface
 
 `run_content_studio()` provides a Shiny interface to the three workflows:
 
 ```r
-install_gui_deps()        # shiny, bslib, DT, ggplot2, and the LLMR.shiny substrate
+install.packages(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))
 run_content_studio()      # coding, robustness audit, and archive tabs
 ```
 

@@ -51,23 +51,6 @@ archive_build <- function(log, name = NULL) {
   )
 }
 
-#' Archive the currently active audit log
-#'
-#' Convenience for the end of a session: archives whatever log
-#' `LLMR::llm_log_enable()` is currently writing (logging is left on; build
-#' the final sealed archive after `LLMR::llm_log_disable()`).
-#'
-#' @param name Optional archive label.
-#' @return An `archive`, or an error when no log is active.
-#' @export
-archive_current <- function(name = NULL) {
-  path <- suppressMessages(LLMR::llm_log_status())
-  if (is.null(path)) {
-    abort("No audit log is active; enable one with LLMR::llm_log_enable().")
-  }
-  archive_build(path, name = name)
-}
-
 #' Seal an archive under a root hash
 #'
 #' Computes a single root hash over the ordered record hashes plus the
@@ -118,8 +101,9 @@ archive_seal <- function(archive) {
 #'   `root_ok`, `n_records`,
 #'   `bad_records` (indices), `duplicate_response_ids` and
 #'   `duplicate_request_hashes` (each a character vector of any values that
-#'   appear on more than one record -- a sign of a malformed or merged log), and,
-#'   when `results` was given, `n_results`, `n_matched`, `unmatched_ids`.
+#'   appear on more than one record -- a sign of a malformed or merged log),
+#'   `n_results`, `n_matched`, and `unmatched_ids`. The last three are typed
+#'   missing or empty values when `results` is not supplied.
 #' @examples
 #' log <- tempfile(fileext = ".jsonl")
 #' writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
@@ -169,16 +153,18 @@ archive_check <- function(archive, results = NULL) {
               root_ok = root_ok,
               n_records = nrow(archive$manifest), bad_records = bad,
               duplicate_response_ids = dup_response_ids,
-              duplicate_request_hashes = dup_request_hashes)
+              duplicate_request_hashes = dup_request_hashes,
+              n_results = NA_integer_, n_matched = NA_integer_,
+              unmatched_ids = character(0))
   if (!is.null(results)) {
     stopifnot(is.data.frame(results))
     if (!"response_id" %in% names(results)) {
       abort("`results` must carry a `response_id` column to check completeness.")
     }
     ids <- results$response_id
-    out$n_results <- length(ids)
-    out$n_matched <- sum(ids %in% logged_ids, na.rm = TRUE)
-    out$unmatched_ids <- ids[!ids %in% logged_ids & !is.na(ids)]
+    out$n_results <- as.integer(length(ids))
+    out$n_matched <- as.integer(sum(ids %in% logged_ids, na.rm = TRUE))
+    out$unmatched_ids <- as.character(ids[!ids %in% logged_ids & !is.na(ids)])
   }
   class(out) <- "archive_check"
   out
@@ -196,7 +182,7 @@ print.archive_check <- function(x, ...) {
   if (isTRUE(x$redacted)) {
     cat("  original hash tree preserved; content attestable against the unredacted original\n")
   }
-  if (!is.null(x$n_results)) {
+  if (!is.na(x$n_results)) {
     cat(sprintf("  completeness: %d/%d result rows map to a logged call\n",
                 x$n_matched, x$n_results))
   }
@@ -289,7 +275,7 @@ as_tibble.archive <- function(x, ...) {
 #' Machine-readable archive diagnostics
 #'
 #' @param x An `archive`.
-#' @param ... Passed to [verifiability_horizon()], such as `open_patterns`.
+#' @param ... Passed to the model-horizon classifier, such as `open_patterns`.
 #' @return A one-row tibble with record count, seal state, root, redaction
 #'   state, and horizon counts.
 #' @exportS3Method LLMR::diagnostics
@@ -312,7 +298,7 @@ diagnostics.archive <- function(x, ...) {
 #' Draft an archive report through the shared LLMR generic
 #'
 #' @param x An `archive`.
-#' @param ... Passed to [archive_appendix()].
+#' @param ... Passed to report construction, such as `open_patterns`.
 #' @return Character lines of class `archive_appendix`.
 #' @exportS3Method LLMR::report
 report.archive <- function(x, ...) {

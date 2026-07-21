@@ -15,9 +15,9 @@ validate_protocol(protocol, gold, split = NULL, .runner = NULL, ...)
 holdout split (\code{"test"} unless \code{\link[=gold_set]{gold_set()}} was given another
 \code{holdout} name).}
 
-\item{.runner}{Internal seam for tests: a function \verb{(experiments, ...)}
-returning the experiments with a \code{response_text} column. Default
-\code{LLMR::call_llm_par()}.}
+\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
+receives a data frame with \code{config} and \code{messages} list-columns and returns
+those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par()}.}
 
 \item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
 }
@@ -31,8 +31,8 @@ set's holdout split name, and the ledger position of this evaluation.
 The one honest evaluation. Requires a locked protocol (so the validated
 instrument is hash-identified), applies its configured replicate count and
 modal-label rule over the holdout split, and when the gold set was built with
-\code{seal_test = TRUE} appends the event to the ledger, so every holdout-split
-evaluation that ever happened appears in \code{\link[=coding_report]{coding_report()}}.
+\code{seal_holdout = TRUE} appends the event to the ledger, so every holdout-split
+evaluation that ever happened appears in \code{LLMR::report()}.
 }
 \examples{
 \dontrun{
@@ -42,7 +42,7 @@ cb <- codebook("tone", "one sentence",
 gold_data <- data.frame(
   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
   label = rep(c("positive", "negative"), each = 10))
-g <- gold_set(gold_data, text = "text", labels = "label",
+g <- gold_set(gold_data, text = "text", label = "label",
               split = c(test = 1))
 p <- protocol_lock(protocol(cb, LLMR::llm_config("groq", "openai/gpt-oss-20b")))
 validate_protocol(p, g)

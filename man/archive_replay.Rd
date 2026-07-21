@@ -16,7 +16,7 @@ A function of class \code{archive_replayer}, suitable as a \code{.runner}
 argument. It returns the input experiments with \code{response_text},
 \code{sent_tokens}, \code{rec_tokens}, \code{response_id}, \code{success}, and
 \code{error_message} columns; unmatched rows carry \code{NA} text, \code{success = FALSE},
-and \code{"not in archive"}. Reset it with \code{\link[=reset]{reset()}}.
+and \code{"not in archive"}. Reset it with \code{LLMR::reset()}.
 }
 \description{
 Builds a runner that serves archived replies from an \code{archive}. Passed
@@ -36,8 +36,9 @@ identical and the point is moot. Records logged without message content
 (\code{include_messages = FALSE}) cannot be replayed and are excluded.
 
 The replayer is stateful: each key holds a queue consumed as requests arrive.
-\code{\link[=reset]{reset()}} returns it to its initial position so a deterministic pipeline can
-be replayed again. \code{replay_mode} chooses what a repeated request gets:
+\code{LLMR::reset()} returns it to its initial position so a deterministic
+pipeline can be replayed again. \code{replay_mode} chooses what a repeated
+request gets:
 \code{"queue"} (default) serves the next archived response in order; \code{"first"}
 always serves the first response for a key
 (idempotent, never exhausts); \code{"strict_once"} errors if a key is requested
@@ -63,7 +64,7 @@ experiments <- tibble::tibble(
   messages = list(c(user = "Capital of France?")))
 replay(experiments)$response_text
 
-# The queue advances as it serves; reset() restores it for a second pass.
-reset(replay)
+# The queue advances as it serves; LLMR::reset() restores it for a second pass.
+LLMR::reset(replay)
 replay(experiments)$response_text
 }

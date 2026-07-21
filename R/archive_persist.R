@@ -7,6 +7,8 @@
 #'
 #' @param archive An `archive`.
 #' @param dir Target directory (created if missing).
+#' @param overwrite If `FALSE` (default), refuse an existing directory. If
+#'   `TRUE`, replace its archive files.
 #' @return `dir`, invisibly.
 #' @examples
 #' log <- tempfile(fileext = ".jsonl")
@@ -14,15 +16,21 @@
 #'   '"kind":"call","provider":"groq","model":"openai/gpt-oss-20b",',
 #'   '"usage":{"sent":5,"rec":2},"response_id":"r-1","text":"reply"}'), log)
 #' a <- archive_seal(archive_build(log, name = "demo"))
-#' dir <- file.path(tempdir(), "demo-archive")
+#' dir <- tempfile("demo-archive-")
 #' archive_write(a, dir)
 #' b <- archive_read(dir)
 #' archive_check(b)          # reading and verifying are separate acts
 #' identical(b$seal$root, a$seal$root)
 #' @seealso [archive_read()]
 #' @export
-archive_write <- function(archive, dir) {
+archive_write <- function(archive, dir, overwrite = FALSE) {
   stopifnot(inherits(archive, "archive"))
+  if (dir.exists(dir) && !isTRUE(overwrite)) {
+    abort("`dir` already exists; set `overwrite = TRUE` to replace its archive files.")
+  }
+  if (file.exists(dir) && !dir.exists(dir)) {
+    abort("`dir` exists and is not a directory.")
+  }
   if (!dir.exists(dir)) dir.create(dir, recursive = TRUE)
   writeLines(vapply(archive$records, `[[`, "", "raw"),
              file.path(dir, "records.jsonl"), useBytes = TRUE)

@@ -32,7 +32,7 @@
 #'     '"kind":"call","provider":"openai","model":"gpt-4o",',
 #'     '"usage":{"sent":5,"rec":2},"response_id":"r-2"}')), log)
 #' verifiability_horizon(archive_build(log))
-#' @export
+#' @noRd
 verifiability_horizon <- function(
     archive,
     open_patterns = "gpt-oss|llama|qwen|deepseek|mistral|mixtral|gemma|phi-|kimi|glm-|yi-") {
@@ -61,9 +61,10 @@ verifiability_horizon <- function(
 #' from a results frame; this drafts the appendix from the log.
 #'
 #' @param archive An `archive` (seal it first; the root is cited).
-#' @param ... Passed to [verifiability_horizon()], such as `open_patterns`.
+#' @param ... Passed to the internal horizon classifier, such as
+#'   `open_patterns`.
 #' @return Character lines of class `archive_appendix`, with a print method.
-#' @export
+#' @noRd
 archive_appendix <- function(archive, ...) {
   stopifnot(inherits(archive, "archive"))
   m <- archive$manifest
@@ -106,36 +107,5 @@ archive_appendix <- function(archive, ...) {
 #' @export
 print.archive_appendix <- function(x, ...) {
   cat(paste(unclass(x), collapse = "\n"), "\n")
-  invisible(x)
-}
-
-#' Compare two archives
-#'
-#' Set comparison over canonical request hashes: which calls are unique to
-#' each archive, which questions were asked in both. The everyday use is
-#' revision hygiene -- did the R1 resubmission re-run what it claims to have
-#' re-run?
-#'
-#' @param a,b `archive` objects.
-#' @return A list of class `archive_diff`: `only_a`, `only_b`, `common`
-#'   (counts), plus the hash sets as attributes.
-#' @export
-archive_diff <- function(a, b) {
-  stopifnot(inherits(a, "archive"), inherits(b, "archive"))
-  ha <- stats::na.omit(a$manifest$request_hash)
-  hb <- stats::na.omit(b$manifest$request_hash)
-  out <- list(only_a = length(setdiff(ha, hb)),
-              only_b = length(setdiff(hb, ha)),
-              common = length(intersect(ha, hb)))
-  attr(out, "only_a_hashes") <- setdiff(ha, hb)
-  attr(out, "only_b_hashes") <- setdiff(hb, ha)
-  class(out) <- "archive_diff"
-  out
-}
-
-#' @export
-print.archive_diff <- function(x, ...) {
-  cat(sprintf("<archive_diff | common %d | only in A %d | only in B %d>\n",
-              x$common, x$only_a, x$only_b))
   invisible(x)
 }

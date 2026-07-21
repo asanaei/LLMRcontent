@@ -56,7 +56,7 @@ set.seed(110)
 gold <- gold_set(
   gold_data,
   text = "text",
-  labels = "label",
+  label = "label",
   id = "id",
   split = c(dev = 0.5, test = 0.5)
 )
@@ -147,7 +147,8 @@ coded <- code_corpus(
   .runner = offline_coder
 )
 
-head(coded[c("id", "label")])
+coded_data <- tibble::as_tibble(coded)
+head(coded_data[c("id", "label")])
 ```
 
 `gold_correct()` compares the model and human labels in the holdout sample.

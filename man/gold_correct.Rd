@@ -70,7 +70,7 @@ method says so when it happens.
 
 Using holdout truth is a look at the holdout split, so when the gold
 set is sealed the event is appended to the ledger and appears in
-\code{\link[=coding_report]{coding_report()}} like any other evaluation.
+\code{LLMR::report()} like any other evaluation.
 }
 \examples{
 \dontrun{
@@ -80,7 +80,7 @@ cb <- codebook("stance", "one text",
 gold_data <- data.frame(
   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
   label = rep(c("positive", "negative"), each = 10))
-gold <- gold_set(gold_data, text = "text", labels = "label",
+gold <- gold_set(gold_data, text = "text", label = "label",
                  split = c(test = 1))
 corpus <- data.frame(text = c(gold_data$text,
                               "a hopeful note", "an alarming figure"))

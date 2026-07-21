@@ -18,11 +18,14 @@ test_that("tuning ranks protocols and refuses the test split", {
     })
 
   expect_s3_class(res, "protocol_tuning")
-  expect_identical(res$protocol[1], "good")
-  expect_equal(res$accuracy[res$protocol == "good"], 1)
-  expect_lt(res$accuracy[res$protocol == "always-pos"], 1)
-  expect_true(all(c("acc_lo", "acc_hi", "macro_f1") %in% names(res)))
-  expect_named(attr(res, "per_category"), c("good", "always-pos"))
+  expect_named(res, c("table", "per_category", "split"))
+  expect_identical(res$table$protocol[1], "good")
+  expect_equal(res$table$accuracy[res$table$protocol == "good"], 1)
+  expect_lt(res$table$accuracy[res$table$protocol == "always-pos"], 1)
+  expect_true(all(c("acc_lo", "acc_hi", "macro_f1") %in%
+                    names(res$table)))
+  expect_named(res$per_category, c("good", "always-pos"))
+  expect_identical(res$split, "dev")
 
   expect_error(tune_protocol(list(good), g, split = "test"), "sealed")
 })
@@ -61,7 +64,7 @@ test_that("locked protocols refuse changes at validation and coding gates", {
                   "protocol_validation")
   expect_s3_class(code_corpus(corpus, pl, "text",
                               .runner = fake_runner_perfect),
-                  "tbl_df")
+                  "coded_corpus")
 
   changed <- pl
   changed$prompt <- paste(changed$prompt, "Changed after locking.")
@@ -100,8 +103,8 @@ test_that("validation applies the modal rule across protocol replicates", {
   expect_equal(v$tokens, calls * 12L)
 })
 
-test_that("seal_test = FALSE means no ledger entries", {
-  g <- fix_gold(8, seal_test = FALSE)
+test_that("seal_holdout = FALSE means no ledger entries", {
+  g <- fix_gold(8, seal_holdout = FALSE)
   expect_output(print(g), "unsealed")
   pl <- protocol_lock(protocol(fix_codebook(), fix_config()))
   invisible(validate_protocol(pl, g, .runner = fake_runner_perfect))
@@ -132,16 +135,99 @@ test_that("parse failures are counted, never silently dropped", {
 })
 
 test_that("code_corpus needs a lock, replicates, and reports stability", {
-  corp <- data.frame(text = c("great stuff", "awful stuff", "fine then"))
+  corp <- data.frame(uid = 1:3,
+                     text = c("great stuff", "awful stuff", "fine then"))
   p <- protocol(fix_codebook(), fix_config(), replicates = 3L)
   expect_error(code_corpus(corp, p, "text"), "locked")
 
   pl <- protocol_lock(p)
-  out <- code_corpus(corp, pl, "text", .runner = fake_runner_perfect)
-  expect_identical(out$label, c("positive", "negative", "positive"))
-  expect_equal(out$label_share, c(1, 1, 1))
-  expect_true(all(c("label_rep1", "label_rep2", "label_rep3") %in% names(out)))
-  expect_identical(attr(out, "protocol_hash"), pl$hash)
+  out <- code_corpus(corp, pl, "text", id = "uid",
+                     .runner = fake_runner_perfect)
+  expect_s3_class(out, "coded_corpus")
+  expect_named(out, c("data", "protocol_hash", "protocol_label", "text",
+                      "label", "id", "labels"))
+  expect_identical(out$protocol_hash, pl$hash)
+  expect_identical(out$protocol_label, pl$label)
+  expect_identical(out$text, "text")
+  expect_identical(out$label, "label")
+  expect_identical(out$id, "uid")
+  expect_identical(out$labels, c("positive", "negative"))
+
+  tab <- tibble::as_tibble(out)
+  expect_identical(tab$label, c("positive", "negative", "positive"))
+  expect_equal(tab$label_share, c(1, 1, 1))
+  expect_true(all(c("label_rep1", "label_rep2", "label_rep3") %in% names(tab)))
+  expect_output(print(out), "<coded_corpus")
+  expect_identical(names(formals(code_corpus)),
+                   c("corpus", "protocol", "text", "id", ".runner", "..."))
+})
+
+test_that("runner failures abort instead of becoming coded labels", {
+  g <- fix_gold(8)
+  p <- protocol_lock(protocol(fix_codebook(), fix_config()))
+  failed_runner <- function(experiments, ...) {
+    experiments$response_text <- NA_character_
+    experiments$success <- FALSE
+    experiments$error_message <- "not in archive"
+    experiments
+  }
+
+  expect_error(
+    validate_protocol(p, g, split = "dev", .runner = failed_runner),
+    "reported failure"
+  )
+  expect_error(
+    code_corpus(data.frame(text = "great"), p, "text",
+                .runner = failed_runner),
+    "reported failure"
+  )
+
+  missing_response <- function(experiments, ...) {
+    experiments$response_text <- NA_character_
+    experiments
+  }
+  expect_error(
+    validate_protocol(p, g, split = "dev", .runner = missing_response),
+    "missing response"
+  )
+})
+
+test_that("coding runners preserve row identity and may return rows reordered", {
+  g <- fix_gold(8)
+  p <- protocol_lock(protocol(fix_codebook(), fix_config()))
+  reversed <- function(experiments, ...) {
+    out <- fake_runner_perfect(experiments, ...)
+    out[rev(seq_len(nrow(out))), , drop = FALSE]
+  }
+  v <- validate_protocol(p, g, split = "dev", .runner = reversed)
+  expect_equal(v$accuracy, 1)
+
+  duplicated <- function(experiments, ...) {
+    out <- fake_runner_perfect(experiments, ...)
+    out$unit_id[2] <- out$unit_id[1]
+    out
+  }
+  expect_error(
+    validate_protocol(p, g, split = "dev", .runner = duplicated),
+    "row identity"
+  )
+})
+
+test_that("code_corpus has a typed empty state", {
+  p <- protocol_lock(protocol(fix_codebook(), fix_config(), replicates = 2L))
+  out <- code_corpus(
+    data.frame(uid = integer(), text = character()),
+    p, "text", id = "uid",
+    .runner = function(experiments, ...) stop("runner should not be called")
+  )
+
+  expect_s3_class(out, "coded_corpus")
+  expect_equal(nrow(out$data), 0L)
+  expect_type(out$data$label, "character")
+  expect_type(out$data$label_share, "double")
+  expect_type(out$data$parse_failures, "integer")
+  expect_type(out$data$label_rep1, "character")
+  expect_type(out$data$.text_hash, "character")
 })
 
 test_that("coder_agreement wraps llm_agreement for gold coders and frames", {
@@ -158,6 +244,15 @@ test_that("coder_agreement wraps llm_agreement for gold coders and frames", {
 
   agr2 <- coder_agreement(df, cols = c("coder1", "coder2"))
   expect_s3_class(agr2, "llmr_agreement")
+
+  coded <- code_corpus(
+    data.frame(text = c("great", "awful")),
+    protocol_lock(protocol(fix_codebook(), fix_config(), replicates = 2L)),
+    "text", .runner = fake_runner_perfect
+  )
+  agr3 <- coder_agreement(coded, cols = c("label_rep1", "label_rep2"))
+  expect_s3_class(agr3, "llmr_agreement")
+
   g0 <- suppressWarnings(gold_set(df, "text", "label"))
   expect_error(coder_agreement(g0), "coders")
 })
@@ -168,7 +263,7 @@ test_that("the report tells the whole story, ledger included", {
   v <- validate_protocol(pl, g, .runner = fake_runner_perfect)
   invisible(validate_protocol(pl, g, .runner = fake_runner_perfect))
 
-  rep <- coding_report(v, g, pl)
+  rep <- LLMR::report(v, gold = g, protocol = pl)
   expect_s3_class(rep, "coding_report")
   txt <- paste(unclass(rep), collapse = "\n")
   expect_match(txt, "codebook 'tone' v1.0")
@@ -176,38 +271,23 @@ test_that("the report tells the whole story, ledger included", {
   expect_output(print(rep), "TEST-SPLIT LEDGER")
 })
 
-test_that("export_caqdas writes csv and jsonl", {
-  corp <- data.frame(text = c("great", "awful"))
-  pl <- protocol_lock(protocol(fix_codebook(), fix_config()))
-  out <- code_corpus(corp, pl, "text", .runner = fake_runner_perfect)
-
-  f1 <- tempfile(fileext = ".csv"); f2 <- tempfile(fileext = ".jsonl")
-  on.exit(unlink(c(f1, f2)))
-  export_caqdas(out, f1, "csv")
-  expect_equal(nrow(utils::read.csv(f1)), 2L)
-  export_caqdas(out, f2, "jsonl")
-  recs <- lapply(readLines(f2), jsonlite::fromJSON)
-  expect_length(recs, 2L)
-  expect_identical(recs[[1]]$label, "positive")
-})
-
 test_that("tuning results carry the cost column when the runner reports usage", {
   g <- fix_gold(8)
   res <- tune_protocol(protocol(fix_codebook(), fix_config()), g,
                        .runner = fake_runner_perfect)
-  expect_equal(res$tokens, 4L * 12L)
+  expect_equal(res$table$tokens, 4L * 12L)
   # and NA when the runner reports nothing
   res2 <- tune_protocol(protocol(fix_codebook(), fix_config()), g,
                         .runner = function(experiments, ...) {
                           experiments$response_text <- "positive"
                           experiments
                         })
-  expect_true(is.na(res2$tokens))
+  expect_true(is.na(res2$table$tokens))
 })
 
 test_that("duplicate protocol labels stay one-to-one in tuning (regression)", {
   # Tuning prompt variants on one model gives every protocol the same default
-  # label; the per_category attribute and the comparison rows must not
+  # label; the per_category field and the comparison rows must not
   # overwrite each other.
   g <- fix_gold()
   p1 <- protocol(fix_codebook(), fix_config(),
@@ -216,10 +296,10 @@ test_that("duplicate protocol labels stay one-to-one in tuning (regression)", {
                  prompt = "{codebook}\nB variant:\n{text}\nLabel:")
   expect_identical(p1$label, p2$label)
   t <- tune_protocol(list(p1, p2), g, .runner = fake_runner_perfect)
-  expect_equal(nrow(t), 2L)
-  expect_equal(anyDuplicated(t$protocol), 0L)
-  expect_length(attr(t, "per_category"), 2L)
-  expect_setequal(names(attr(t, "per_category")), t$protocol)
+  expect_equal(nrow(t$table), 2L)
+  expect_equal(anyDuplicated(t$table$protocol), 0L)
+  expect_length(t$per_category, 2L)
+  expect_setequal(names(t$per_category), t$table$protocol)
 })
 
 test_that("every placeholder occurrence is rendered, not just the first (regression)", {

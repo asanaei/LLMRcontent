@@ -15,5 +15,5 @@
 A tibble with one row per protocol.
 }
 \description{
-Strips the \code{protocol_tuning} class and returns the comparison table.
+Coerce protocol tuning results to a tibble
 }

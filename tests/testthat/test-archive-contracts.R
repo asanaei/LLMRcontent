@@ -156,7 +156,7 @@ test_that("replay is resettable so a deterministic pipeline runs twice", {
   expect_warning(second <- replay(experiments), "could not match")
   expect_false(second$success)
 
-  reset(replay)
+  LLMR::reset(replay)
   third <- replay(experiments)
   expect_true(third$success)
   expect_identical(third$response_text, "positive")
@@ -208,7 +208,7 @@ test_that("calls differing only in presence_penalty get distinct replay keys", {
   expect_identical(out$response_text, c("two", "one"))
 })
 
-test_that("archive_verify uses the .runner seam and reports drift details", {
+test_that("archive_drift uses the .runner seam and reports drift details", {
   a <- fix_contract_archive()
   echo <- function(experiments, ...) {
     user <- vapply(experiments$messages, `[[`, character(1), "user")
@@ -222,7 +222,7 @@ test_that("archive_verify uses the .runner seam and reports drift details", {
   }
 
   set.seed(110)
-  drift <- archive_verify(a, sample = 1, .runner = echo)
+  drift <- archive_drift(a, fraction = 1, .runner = echo)
   expect_s3_class(drift, "archive_drift")
   expect_s3_class(drift$table, "tbl_df")
   expect_s3_class(drift$details, "tbl_df")
@@ -232,20 +232,104 @@ test_that("archive_verify uses the .runner seam and reports drift details", {
   expect_true(all(drift$table$exact_rate == 1))
 })
 
-test_that("archive_verify validates runner shape", {
+test_that("archive_drift separates fractional and count sampling", {
+  a <- fix_contract_archive()
+  echo <- function(experiments, ...) {
+    user <- vapply(experiments$messages, `[[`, character(1), "user")
+    experiments$response_text <- ifelse(grepl("positive", user),
+                                        "positive", "negative")
+    experiments
+  }
+
+  set.seed(110)
+  by_fraction <- archive_drift(a, fraction = 1, .runner = echo)
+  set.seed(110)
+  by_count <- archive_drift(a, n = 1, .runner = echo)
+  by_default <- archive_drift(a, .runner = echo)
+
+  expect_equal(nrow(by_fraction$details), 2L)
+  expect_equal(nrow(by_count$details), 1L)
+  expect_equal(sum(by_count$table$n_sampled), 1L)
+  expect_equal(nrow(by_default$details), 2L)
+  expect_equal(nrow(archive_drift(
+    a, n = .Machine$integer.max + 1, .runner = echo)$details), 2L)
+  expect_error(archive_drift(a, fraction = 0.5, n = 1, .runner = echo),
+               "only one")
+  expect_error(archive_drift(a, fraction = 1.1, .runner = echo),
+               "fraction")
+  expect_error(archive_drift(a, n = 1.5, .runner = echo),
+               "whole number")
+})
+
+test_that("archive_drift aligns reordered runner rows by sampled record", {
+  a <- fix_contract_archive()
+  reversed <- function(experiments, ...) {
+    user <- vapply(experiments$messages, `[[`, character(1), "user")
+    experiments$response_text <- ifelse(grepl("positive", user),
+                                        "positive", "negative")
+    experiments[rev(seq_len(nrow(experiments))), , drop = FALSE]
+  }
+
+  drift <- archive_drift(a, fraction = 1, .runner = reversed)
+  expect_true(all(drift$details$exact))
+})
+
+test_that("archive_drift validates runner shape and failures", {
   bad_runner <- function(experiments, ...) experiments
   expect_error(
-    archive_verify(fix_contract_archive(), sample = 1, .runner = bad_runner),
+    archive_drift(fix_contract_archive(), fraction = 1, .runner = bad_runner),
     "response_text"
+  )
+
+  failed_runner <- function(experiments, ...) {
+    experiments$response_text <- "unscored response"
+    experiments$success <- FALSE
+    experiments
+  }
+  expect_error(
+    archive_drift(fix_contract_archive(), fraction = 1,
+                  .runner = failed_runner),
+    "runner failed"
+  )
+})
+
+test_that("archive_drift derives sampled calls from raw records", {
+  a <- archive_seal(fix_contract_archive())
+  for (i in seq_along(a$records)) {
+    a$records[[i]]$rec <- list(kind = "error", text = "cached tamper")
+  }
+  echo <- function(experiments, ...) {
+    user <- vapply(experiments$messages, `[[`, character(1), "user")
+    experiments$response_text <- ifelse(grepl("positive", user),
+                                        "positive", "negative")
+    experiments
+  }
+
+  drift <- archive_drift(a, fraction = 1, .runner = echo)
+  expect_equal(nrow(drift$details), 2L)
+  expect_true(all(drift$details$exact))
+})
+
+test_that("archive_drift excludes raw records without reconstructible messages", {
+  path <- tempfile(fileext = ".jsonl")
+  writeLines(paste0(
+    '{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
+    '"kind":"call","provider":"openai","model":"m",',
+    '"request":{"model":"m","temperature":0},',
+    '"usage":{"sent":1,"rec":1},"response_id":"r1","text":"A"}'
+  ), path, useBytes = TRUE)
+
+  expect_error(
+    archive_drift(archive_build(path), fraction = 1,
+                  .runner = function(experiments, ...) stop("not reached")),
+    "reconstructible requests"
   )
 })
 
 test_that("documented surface names remain real exports", {
   archive_exports <- c(
-    "archive_appendix", "archive_build", "archive_check", "archive_current",
-    "archive_diff", "archive_read", "archive_redact", "archive_replay",
-    "archive_seal", "archive_verify", "archive_write",
-    "verifiability_horizon"
+    "archive_build", "archive_check", "archive_drift", "archive_read",
+    "archive_redact", "archive_replay", "archive_seal", "archive_write"
   )
   expect_true(all(archive_exports %in% getNamespaceExports("LLMRcontent")))
 
@@ -259,16 +343,17 @@ test_that("documented surface names remain real exports", {
   expect_true(all(base_exports %in% getNamespaceExports("base")))
 })
 
-test_that("archive_verify names the unknown strata columns in plain text (regression)", {
+test_that("archive_drift names the unknown strata columns in plain text (regression)", {
   err <- tryCatch(
-    archive_verify(fix_contract_archive(), sample = 1, strata = "no_such_column"),
+    archive_drift(fix_contract_archive(), fraction = 1,
+                  strata = "no_such_column"),
     error = conditionMessage
   )
   expect_match(err, "no_such_column", fixed = TRUE)
   expect_false(grepl("{.field", err, fixed = TRUE))
 })
 
-test_that("archive_verify excludes NA temperatures from n_temperature0 (regression)", {
+test_that("archive_drift excludes NA temperatures from n_temperature0 (regression)", {
   # One record at temperature 0, one with no temperature at all: the
   # exact-reproduction denominator counts only the former.
   lines <- c(
@@ -289,7 +374,7 @@ test_that("archive_verify excludes NA temperatures from n_temperature0 (regressi
     experiments
   }
   set.seed(110)
-  drift <- archive_verify(a, sample = 1, .runner = echo)
+  drift <- archive_drift(a, fraction = 1, .runner = echo)
   expect_true(anyNA(drift$details$temperature))
   expect_equal(sum(drift$table$n_temperature0), 1L)
 })

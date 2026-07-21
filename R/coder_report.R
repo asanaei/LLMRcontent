@@ -18,7 +18,7 @@
 #' @return A character vector of report lines (class `coding_report`), with
 #'   a print method. Paste into the appendix and edit; this is a draft whose
 #'   numbers are right, not finished prose.
-#' @export
+#' @noRd
 coding_report <- function(validation, gold, protocol) {
   stopifnot(inherits(validation, "protocol_validation"),
             inherits(gold, "gold_set"),
@@ -60,33 +60,4 @@ coding_report <- function(validation, gold, protocol) {
 print.coding_report <- function(x, ...) {
   cat(paste(unclass(x), collapse = "\n"), "\n")
   invisible(x)
-}
-
-#' Export coded data for CAQDAS software
-#'
-#' Writes coded output in shapes that NVivo-, ATLAS.ti-, and Dedoose-style
-#' workflows import: a flat CSV (one row per unit, label columns included)
-#' or JSONL (one object per unit with full replicate detail).
-#'
-#' @param coded A [code_corpus()] result.
-#' @param path Output file path; the extension does not need to match
-#'   `format`.
-#' @param format `"csv"` or `"jsonl"`.
-#' @return `path`, invisibly.
-#' @export
-export_caqdas <- function(coded, path, format = c("csv", "jsonl")) {
-  format <- match.arg(format)
-  stopifnot(is.data.frame(coded))
-  if (identical(format, "csv")) {
-    utils::write.csv(coded, path, row.names = FALSE)
-  } else {
-    con <- file(path, open = "wt")
-    on.exit(close(con), add = TRUE)
-    for (i in seq_len(nrow(coded))) {
-      writeLines(as.character(jsonlite::toJSON(as.list(coded[i, ]),
-                                               auto_unbox = TRUE,
-                                               null = "null")), con)
-    }
-  }
-  invisible(path)
 }

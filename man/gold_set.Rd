@@ -7,11 +7,11 @@
 gold_set(
   data,
   text,
-  labels,
+  label,
   split = c(dev = 0.6, test = 0.4),
   holdout = "test",
   stratify = TRUE,
-  seal_test = TRUE,
+  seal_holdout = TRUE,
   coders = NULL,
   id = NULL
 )
@@ -22,7 +22,7 @@ complete: a missing label is not gold, and construction fails on \code{NA}s.}
 
 \item{text}{Name of the text column (character scalar).}
 
-\item{labels}{Name of the (adjudicated) label column.}
+\item{label}{Name of the (adjudicated) label column.}
 
 \item{split}{Named numeric vector of proportions, e.g.
 \code{c(dev = 0.6, test = 0.4)}. Must sum to 1. Sizes are allocated by
@@ -42,9 +42,9 @@ object, so downstream functions follow it without repetition.}
 column, so every split carries the same class composition -- the methods
 default for evaluation splits.}
 
-\item{seal_test}{If TRUE (default), the holdout split is \emph{sealed}:
+\item{seal_holdout}{If TRUE (default), the holdout split is \emph{sealed}:
 every \code{\link[=validate_protocol]{validate_protocol()}} or \code{\link[=gold_correct]{gold_correct()}} run against it is
-recorded in the ledger and printed by \code{\link[=coding_report]{coding_report()}}. The seal is
+recorded in the ledger and printed by \code{LLMR::report()}. The seal is
 visibility, not enforcement; save the gold set with the study and
 archive the LLM call log (see the archive workflow) when tamper
 evidence is needed.}
@@ -72,7 +72,7 @@ set.seed(110)   # the split assignment draws locally
 g <- gold_set(
   data.frame(text  = paste0("unit", seq_len(40)),
              label = rep(c("x", "y"), each = 20)),
-  text = "text", labels = "label", split = c(dev = 0.5, test = 0.5)
+  text = "text", label = "label", split = c(dev = 0.5, test = 0.5)
 )
 g
 table(gold_split(g, "dev")$label)   # stratified: same class mix as test

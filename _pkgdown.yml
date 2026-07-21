@@ -12,3 +12,63 @@ navbar:
   structure:
     left: [reference, articles, news]
     right: [github]
+reference:
+- title: Coding protocols
+  contents:
+  - cb_category
+  - codebook
+  - codebook_labels
+  - codebook_hash
+  - format_codebook
+  - protocol
+  - protocol_lock
+  - gold_set
+  - gold_split
+  - gold_ledger
+  - gold_size
+  - tune_protocol
+  - validate_protocol
+  - code_corpus
+  - gold_correct
+  - coder_agreement
+  - as_tibble.coded_corpus
+  - as_tibble.protocol_tuning
+  - diagnostics.protocol_validation
+  - report.protocol_validation
+  - as_tibble.gold_correction
+  - diagnostics.gold_correction
+- title: Robustness audits
+  contents:
+  - audit_plan
+  - audit_add_models
+  - audit_add_prompts
+  - audit_add_perturbations
+  - audit_run
+  - audit_units
+  - audit_stability
+  - audit_fragility
+  - audit_curve
+  - audit_placebo
+  - sign_flip
+  - threshold_flip
+  - as_tibble.audit
+  - as_tibble.audit_placebo
+  - diagnostics.audit
+  - report.audit
+- title: Replication archives
+  contents:
+  - archive_build
+  - archive_seal
+  - archive_check
+  - archive_redact
+  - archive_replay
+  - archive_drift
+  - archive_write
+  - archive_read
+  - as_tibble.archive
+  - diagnostics.archive
+  - report.archive
+  - reset.archive_replayer
+- title: Interface
+  contents:
+  - run_content_studio

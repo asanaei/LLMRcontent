@@ -68,6 +68,8 @@ test_that("archives write, read, and verify as separate acts", {
   expect_invisible(archive_write(a, dir))
   expect_true(file.exists(file.path(dir, "records.jsonl")))
   expect_true(file.exists(file.path(dir, "manifest.json")))
+  expect_error(archive_write(a, dir), "already exists")
+  expect_invisible(archive_write(a, dir, overwrite = TRUE))
 
   b <- archive_read(dir)
   expect_s3_class(b, "archive")
@@ -75,15 +77,6 @@ test_that("archives write, read, and verify as separate acts", {
   expect_true(archive_check(b)$intact)
   expect_true(archive_check(b)$root_ok)
   expect_identical(b$seal$root, a$seal$root)
-})
-
-test_that("the verifiability horizon classifies open and API-contingent calls", {
-  h <- verifiability_horizon(fix_archive())
-
-  expect_s3_class(h, "tbl_df")
-  expect_equal(sum(h$calls), 2L)
-  expect_true(any(h$model == "openai/gpt-oss-20b" & h$class == "open-pinnable"))
-  expect_true(any(h$model == "gpt-4o-mini" & h$class == "api-contingent"))
 })
 
 test_that("diagnostics, report, and as_tibble dispatch on sealed archives", {
@@ -132,8 +125,16 @@ test_that("archive_check flags duplicate response_ids and repeated requests", {
 
 test_that("a clean archive reports no duplicates", {
   chk <- archive_check(archive_build(fix_archive_log()))
+  expect_named(chk, c(
+    "intact", "redacted", "root_ok", "n_records", "bad_records",
+    "duplicate_response_ids", "duplicate_request_hashes", "n_results",
+    "n_matched", "unmatched_ids"
+  ))
   expect_length(chk$duplicate_response_ids, 0L)
   expect_length(chk$duplicate_request_hashes, 0L)
+  expect_identical(chk$n_results, NA_integer_)
+  expect_identical(chk$n_matched, NA_integer_)
+  expect_identical(chk$unmatched_ids, character(0))
 })
 
 test_that("a round-trip keeps manifest columns that are entirely NA (regression)", {
@@ -159,8 +160,8 @@ test_that("a round-trip keeps manifest columns that are entirely NA (regression)
   b <- archive_read(dir)
 
   expect_setequal(names(b$manifest), names(a$manifest))
-  fails_before <- grep("failure", archive_appendix(a), value = TRUE)
-  fails_after <- grep("failure", archive_appendix(b), value = TRUE)
+  fails_before <- grep("failure", LLMR::report(a), value = TRUE)
+  fails_after <- grep("failure", LLMR::report(b), value = TRUE)
   expect_identical(fails_after, fails_before)
   expect_match(fails_after, "1 failure(s)", fixed = TRUE)
   expect_true(archive_check(b)$intact)

@@ -8,7 +8,7 @@ protocol(
   codebook,
   config,
   prompt = NULL,
-  parser = parse_label(),
+  parser = NULL,
   replicates = 1L,
   label = NULL
 )
@@ -25,7 +25,8 @@ optionally, \code{{codebook}} (replaced by \code{\link[=format_codebook]{format_
 so braces in the coded text itself are safe.}
 
 \item{parser}{A function \verb{(text, labels) -> label} turning a model reply
-into one of the codebook's labels (or \code{NA}). Default \code{\link[=parse_label]{parse_label()}}.}
+into one of the codebook's labels (or \code{NA}). \code{NULL} uses the package's
+label-matching parser.}
 
 \item{replicates}{How many times each unit is coded before its modal label is
 used by \code{\link[=tune_protocol]{tune_protocol()}}, \code{\link[=validate_protocol]{validate_protocol()}}, and \code{\link[=code_corpus]{code_corpus()}}
