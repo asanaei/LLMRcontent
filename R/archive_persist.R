@@ -53,6 +53,15 @@ archive_write <- function(archive, dir, overwrite = FALSE) {
 #' @param dir A directory written by [archive_write()].
 #' @return An `archive`. Run [archive_check()] right after: reading and
 #'   verifying are deliberately separate acts.
+#' @examples
+#' log <- tempfile(fileext = ".jsonl")
+#' writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
+#'   '"kind":"call","provider":"groq","model":"demo",',
+#'   '"response_id":"r-1","text":"reply"}'), log)
+#' a <- archive_seal(archive_build(log))
+#' dir <- tempfile("archive-")
+#' archive_write(a, dir)
+#' archive_check(archive_read(dir))
 #' @export
 archive_read <- function(dir) {
   rec_path <- file.path(dir, "records.jsonl")

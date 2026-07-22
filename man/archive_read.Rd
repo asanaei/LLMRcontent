@@ -16,3 +16,13 @@ verifying are deliberately separate acts.
 \description{
 Read an archive from a directory
 }
+\examples{
+log <- tempfile(fileext = ".jsonl")
+writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
+  '"kind":"call","provider":"groq","model":"demo",',
+  '"response_id":"r-1","text":"reply"}'), log)
+a <- archive_seal(archive_build(log))
+dir <- tempfile("archive-")
+archive_write(a, dir)
+archive_check(archive_read(dir))
+}

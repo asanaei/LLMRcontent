@@ -1,7 +1,7 @@
 # gui_aliases.R ----------------------------------------------------------------
 # The GUI modules call the LLMR.shiny substrate by short names. LLMR.shiny is a
-# Suggests, so it must not be referenced at package load time; these thin
-# forwarders defer the `LLMR.shiny::` lookup until the GUI actually runs (which
+# Suggests, so it must not be referenced at package load time; these helpers
+# defer the `LLMR.shiny::` lookup until the GUI actually runs (which
 # is exactly when the launcher's guard has confirmed LLMR.shiny is installed).
 # This keeps the module call sites terse without an unconditional Suggests
 # dependency at build/check time.
@@ -9,7 +9,7 @@
 # The GUI modules use %||% from rlang (an Import, brought in via 00_package.R);
 # no local redefinition, so the operator means the same thing package-wide.
 
-pkg_available            <- function(...) LLMR.shiny::pkg_available(...)
+pkg_available            <- function(package) requireNamespace(package, quietly = TRUE)
 install_guidance_ui      <- function(...) LLMR.shiny::install_guidance_ui(...)
 # safe_llmr_call() captures its first argument lazily with
 # eval.parent(substitute(expr)); a `...` forwarder would re-home that

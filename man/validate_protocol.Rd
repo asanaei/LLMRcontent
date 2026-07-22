@@ -28,11 +28,11 @@ per-category table, confusion matrix, the protocol hash, the gold
 set's holdout split name, and the ledger position of this evaluation.
 }
 \description{
-The one honest evaluation. Requires a locked protocol (so the validated
-instrument is hash-identified), applies its configured replicate count and
-modal-label rule over the holdout split, and when the gold set was built with
-\code{seal_holdout = TRUE} appends the event to the ledger, so every holdout-split
-evaluation that ever happened appears in \code{LLMR::report()}.
+Evaluates one locked protocol on the sealed holdout split. The lock identifies
+the evaluated instrument by its hash. The function applies the configured
+replicate count and modal-label rule, and when the gold set was built with
+\code{seal_holdout = TRUE}, appends the event to the ledger. Each holdout-split
+evaluation then appears in \code{LLMR::report()}.
 }
 \examples{
 \dontrun{

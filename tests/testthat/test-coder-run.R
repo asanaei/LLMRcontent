@@ -75,6 +75,35 @@ test_that("locked protocols refuse changes at validation and coding gates", {
                "changed since protocol_lock")
 })
 
+test_that("locked protocols cover no_change at validation and coding gates", {
+  g <- fix_gold(8)
+  cfg <- fix_config()
+  cfg$no_change <- FALSE
+  pl <- protocol_lock(protocol(fix_codebook(), cfg, label = "fixed"))
+  changed <- pl
+  changed$config$no_change <- TRUE
+
+  expect_error(validate_protocol(changed, g, .runner = fake_runner_perfect),
+               "changed since protocol_lock")
+  expect_error(code_corpus(data.frame(text = "great work"), changed, "text",
+                           .runner = fake_runner_perfect),
+               "changed since protocol_lock")
+})
+
+test_that("locked protocols cover mutable parser captures", {
+  mode <- "positive"
+  parser <- function(text, labels) mode
+  g <- fix_gold(8)
+  pl <- protocol_lock(protocol(fix_codebook(), fix_config(), parser = parser))
+  mode <- "negative"
+
+  expect_error(validate_protocol(pl, g, .runner = fake_runner_perfect),
+               "changed since protocol_lock")
+  expect_error(code_corpus(data.frame(text = "great work"), pl, "text",
+                           .runner = fake_runner_perfect),
+               "changed since protocol_lock")
+})
+
 test_that("validation applies the modal rule across protocol replicates", {
   g <- fix_gold(8)
   pl <- protocol_lock(protocol(fix_codebook(), fix_config(),

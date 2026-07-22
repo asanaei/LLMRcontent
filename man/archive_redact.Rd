@@ -7,29 +7,23 @@
 archive_redact(archive)
 }
 \arguments{
-\item{archive}{An \code{archive} (not already redacted).}
+\item{archive}{An intact, sealed \code{archive} that has not been redacted.}
 }
 \value{
 The archive with content removed, \verb{$redacted = TRUE}, and
-\code{public_record_hash} filled in the manifest.
+\code{public_record_hash} filled in the manifest and \code{public_root} stored in
+the seal.
 }
 \description{
-Removes prompts and reply text from every record and re-serializes them
-with a \code{redacted} marker. Two hash families then coexist, explicitly:
+Removes request and response text from every record and re-serializes the
+record with a \code{redacted} marker. The original record hashes and seal root
+remain unchanged. A public hash is stored for each redacted record, and a
+public root binds the ordered public hashes to the original seal root.
+\code{\link[=archive_check]{archive_check()}} recomputes this public root from the redacted record lines.
 }
 \details{
-\itemize{
-\item the \strong{original} record hashes and the seal root stay in the manifest
-untouched -- they attest the full content, checkable by whoever holds
-the unredacted archive (the authors, under IRB terms);
-\item a \strong{public} hash per redacted record (\code{public_record_hash}) is added,
-and \code{\link[=archive_check]{archive_check()}} verifies a redacted archive against these, so
-the public artifact has its own working integrity check.
-}
-
-What a reviewer gets from the public artifact: how many calls, to which
-models, with which parameters, when, at what token cost, under which
-root -- everything except the sentences.
+A redacted record retains provider, model, parameters, timestamps, usage,
+identifiers, and hash links. Request and response text are removed.
 }
 \examples{
 log <- tempfile(fileext = ".jsonl")
@@ -39,6 +33,6 @@ writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
   '"usage":{"sent":5,"rec":2},"response_id":"r-1","text":"reply"}'), log)
 a <- archive_seal(archive_build(log))
 r <- archive_redact(a)
-archive_check(r)                       # verifies against public hashes
+archive_check(r)                       # verifies the public root
 identical(r$seal$root, a$seal$root)    # original root preserved
 }

@@ -13,14 +13,11 @@ protocol_lock(x)
 The protocol, locked, with \verb{$hash} set.
 }
 \description{
-Computes and stores the protocol's content hash -- over the codebook, the prompt
-template, the provider, model, all model parameters, the replicate count,
-\strong{and the parser} (by its deparsed source; the parser decides the final
-label, so it is part of the instrument).
-\code{\link[=validate_protocol]{validate_protocol()}} on the sealed split and \code{\link[=code_corpus]{code_corpus()}} both require
-a locked protocol and verify its current content against the stored hash,
-so the validated instrument and the deployed instrument are the same object,
-verifiably. Hashes use \code{LLMR::llm_hash()}, the ecosystem-wide convention.
+Computes and stores a content hash covering the codebook, prompt template,
+provider, model, generation parameters, \code{no_change}, embedding flag,
+replicate count, and parser source and captured values. \code{\link[=validate_protocol]{validate_protocol()}}
+on the sealed split and \code{\link[=code_corpus]{code_corpus()}} require a locked protocol and compare
+its current content with the stored hash. Hashes use \code{LLMR::llm_hash()}.
 }
 \examples{
 cb <- codebook("tone", "one sentence",

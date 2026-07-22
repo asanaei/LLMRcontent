@@ -15,3 +15,9 @@ Character vector of category labels.
 \description{
 Labels defined by a codebook
 }
+\examples{
+cb <- codebook("tone", "one sentence", list(
+  cb_category("positive", "Approving or hopeful."),
+  cb_category("negative", "Critical or alarmed.")))
+codebook_labels(cb)
+}

@@ -62,6 +62,11 @@ audit_plan <- function(data, text, estimator, labels, prompt) {
 #'   informative; agreement within one family is family resemblance, not
 #'   robustness.
 #' @return The plan, extended.
+#' @examples
+#' plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+#'   function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+#' cfg <- LLMR::llm_config("groq", "demo", temperature = 0)
+#' audit_add_models(plan, list(demo = cfg))
 #' @export
 audit_add_models <- function(plan, config) {
   stopifnot(inherits(plan, "audit_plan"), is.list(config),
@@ -86,6 +91,10 @@ audit_add_models <- function(plan, config) {
 #'   words; do not "improve" the prompt here -- that is tuning, and it
 #'   belongs in the coding tournament, before the audit.
 #' @return The plan, extended.
+#' @examples
+#' plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+#'   function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+#' audit_add_prompts(plan, concise = "Classify this text: {text}")
 #' @export
 audit_add_prompts <- function(plan, ...) {
   stopifnot(inherits(plan, "audit_plan"))
@@ -111,6 +120,11 @@ audit_add_prompts <- function(plan, ...) {
 #' @param temperature Numeric vector of temperatures to cross (e.g.
 #'   `c(0, 0.7)`).
 #' @return The plan, extended.
+#' @examples
+#' plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+#'   function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+#' audit_add_perturbations(
+#'   plan, label_order = "reversed", temperature = 0.7)
 #' @export
 audit_add_perturbations <- function(plan, label_order = NULL, temperature = NULL) {
   stopifnot(inherits(plan, "audit_plan"))

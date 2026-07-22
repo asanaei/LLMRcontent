@@ -159,6 +159,13 @@ print.gold_set <- function(x, ...) {
 #' @param x A [gold_set()].
 #' @param split `"dev"` or `"test"` (or any split name used at creation).
 #' @return A tibble of that split's rows.
+#' @examples
+#' set.seed(110)
+#' g <- gold_set(
+#'   data.frame(text = paste("unit", 1:40),
+#'              label = rep(c("x", "y"), each = 20)),
+#'   "text", "label", split = c(dev = 0.5, test = 0.5))
+#' head(gold_split(g, "dev"))
 #' @export
 gold_split <- function(x, split = "dev") {
   stopifnot(inherits(x, "gold_set"))
@@ -181,6 +188,13 @@ gold_split <- function(x, split = "dev") {
 #' @param x A [gold_set()].
 #' @return A tibble: `ts`, `split`, `protocol_hash`, `protocol_label`, `n`,
 #'   `accuracy`.
+#' @examples
+#' set.seed(110)
+#' g <- gold_set(
+#'   data.frame(text = paste("unit", 1:40),
+#'              label = rep(c("x", "y"), each = 20)),
+#'   "text", "label", split = c(dev = 0.5, test = 0.5))
+#' gold_ledger(g)
 #' @export
 gold_ledger <- function(x) {
   stopifnot(inherits(x, "gold_set"))

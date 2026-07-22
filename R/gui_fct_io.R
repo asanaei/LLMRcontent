@@ -32,7 +32,7 @@ call_code_corpus_mapped <- function(corpus, text_col, protocol, .runner = NULL) 
 }
 
 bundle_coder_artifacts <- function(coded, validation, gold, protocol, file, demo = FALSE) {
-  if (!LLMR.shiny::pkg_available("LLMRcontent")) {
+  if (!pkg_available("LLMRcontent")) {
     stop("LLMRcontent is required to export artifacts.", call. = FALSE)
   }
 
@@ -93,7 +93,7 @@ demo_labels_from_codebook <- function(codebook) {
   # The codebook's own label accessor is exact; only fall back to defaults if it
   # is unavailable or empty.
   labs <- tryCatch(
-    if (LLMR.shiny::pkg_available("LLMRcontent")) {
+    if (pkg_available("LLMRcontent")) {
       as.character(LLMRcontent::codebook_labels(codebook))
     } else NULL,
     error = function(e) NULL

@@ -20,3 +20,9 @@ The plan, extended.
 \description{
 Add the model arm of the grid
 }
+\examples{
+plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+  function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+cfg <- LLMR::llm_config("groq", "demo", temperature = 0)
+audit_add_models(plan, list(demo = cfg))
+}

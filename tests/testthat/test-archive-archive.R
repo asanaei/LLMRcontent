@@ -40,7 +40,9 @@ test_that("archives build, seal, print, and check under the archive class", {
   chk <- archive_check(a, results = data.frame(response_id = c("r-1", "orphan")))
   expect_s3_class(chk, "archive_check")
   expect_true(chk$intact)
+  expect_true(chk$records_ok)
   expect_true(chk$root_ok)
+  expect_true(is.na(chk$public_root_ok))
   expect_equal(chk$n_records, 2L)
   expect_equal(chk$n_results, 2L)
   expect_equal(chk$n_matched, 1L)
@@ -55,15 +57,83 @@ test_that("redaction preserves the original seal and creates public hashes", {
   expect_true(r$redacted)
   expect_true("public_record_hash" %in% names(r$manifest))
   expect_identical(r$seal$root, a$seal$root)
-  expect_true(archive_check(r)$intact)
-  expect_true(archive_check(r)$root_ok)
+  expect_match(r$seal$public_root, "^[a-f0-9]{64}$")
+  public_record <- jsonlite::fromJSON(r$records[[1]]$raw,
+                                      simplifyVector = FALSE)
+  expect_null(public_record$request)
+  expect_null(public_record$text)
+  expect_identical(public_record$parameters$temperature, 0L)
+  checked <- archive_check(r)
+  expect_true(checked$intact)
+  expect_true(checked$records_ok)
+  expect_true(checked$root_ok)
+  expect_true(checked$public_root_ok)
+  expect_error(archive_redact(archive_build(fix_archive_log())),
+               "requires a sealed archive")
   expect_error(archive_redact(r), "already redacted")
   expect_error(archive_replay(r), "redacted")
 })
 
+test_that("the public root detects coordinated redacted record tampering", {
+  r <- archive_redact(fix_archive())
+  rec <- jsonlite::fromJSON(r$records[[1]]$raw, simplifyVector = FALSE)
+  rec$model <- "tampered-model"
+  r$records[[1]]$raw <- as.character(jsonlite::toJSON(
+    rec, auto_unbox = TRUE, null = "null"))
+  r$records[[1]]$rec <- rec
+  r$manifest$public_record_hash[1] <-
+    LLMRcontent:::.hash_chr(r$records[[1]]$raw)
+
+  checked <- archive_check(r)
+  expect_true(checked$records_ok)
+  expect_length(checked$bad_records, 0L)
+  expect_true(checked$root_ok)
+  expect_false(checked$public_root_ok)
+  expect_false(checked$intact)
+  expect_output(print(checked), "public root: BROKEN", fixed = TRUE)
+})
+
+test_that("redaction uses authenticated raw records and refuses broken input", {
+  a <- fix_archive()
+  original_model <- a$records[[1]]$rec$model
+  a$records[[1]]$rec$model <- "forged-cache-model"
+
+  r <- archive_redact(a)
+  expect_identical(r$records[[1]]$rec$model, original_model)
+  expect_true(archive_check(r)$intact)
+
+  broken <- fix_archive()
+  rec <- jsonlite::fromJSON(broken$records[[1]]$raw,
+                            simplifyVector = FALSE)
+  rec$model <- "forged-raw-model"
+  broken$records[[1]]$raw <- as.character(jsonlite::toJSON(
+    rec, auto_unbox = TRUE, null = "null"))
+  broken$records[[1]]$rec <- rec
+  expect_error(archive_redact(broken), "intact sealed archive")
+})
+
+test_that("the original root detects coordinated raw and manifest tampering", {
+  a <- fix_archive()
+  rec <- jsonlite::fromJSON(a$records[[1]]$raw, simplifyVector = FALSE)
+  rec$text <- "tampered response"
+  a$records[[1]]$raw <- as.character(jsonlite::toJSON(
+    rec, auto_unbox = TRUE, null = "null"))
+  a$records[[1]]$rec <- rec
+  a$manifest$record_hash[1] <-
+    LLMRcontent:::.hash_chr(a$records[[1]]$raw)
+
+  checked <- archive_check(a)
+  expect_true(checked$records_ok)
+  expect_length(checked$bad_records, 0L)
+  expect_false(checked$root_ok)
+  expect_true(is.na(checked$public_root_ok))
+  expect_false(checked$intact)
+  expect_output(print(checked), "integrity: BROKEN", fixed = TRUE)
+})
+
 test_that("archives write, read, and verify as separate acts", {
   a <- fix_archive()
-  dir <- file.path(tempdir(), paste0("archive-", as.integer(stats::runif(1, 1, 1e9))))
+  dir <- tempfile("archive-")
 
   expect_invisible(archive_write(a, dir))
   expect_true(file.exists(file.path(dir, "records.jsonl")))
@@ -126,7 +196,8 @@ test_that("archive_check flags duplicate response_ids and repeated requests", {
 test_that("a clean archive reports no duplicates", {
   chk <- archive_check(archive_build(fix_archive_log()))
   expect_named(chk, c(
-    "intact", "redacted", "root_ok", "n_records", "bad_records",
+    "records_ok", "root_ok", "public_root_ok", "intact", "redacted",
+    "n_records", "bad_records",
     "duplicate_response_ids", "duplicate_request_hashes", "n_results",
     "n_matched", "unmatched_ids"
   ))
@@ -155,7 +226,7 @@ test_that("a round-trip keeps manifest columns that are entirely NA (regression)
   expect_true(all(is.na(a$manifest$model_version)))
   expect_true(all(is.na(a$manifest$status)))
 
-  dir <- file.path(tempdir(), paste0("archive-na-", as.integer(stats::runif(1, 1, 1e9))))
+  dir <- tempfile("archive-na-")
   archive_write(a, dir)
   b <- archive_read(dir)
 

@@ -1,10 +1,8 @@
 ---
 name: llmrcontent
 description: >-
-  LLMRcontent codes text with language models for quantitative content analysis.
-  It validates coding protocols against held-out human labels and estimates
-  corrected category prevalences. It recomputes an estimator under alternative
-  coding specifications. It stores LLMR call logs for checks and offline replay.
+  Guidance for quantitative content analysis that treats language-model labels
+  as measurements with held-out validation and archived call provenance.
 ---
 
 # LLMRcontent usage reference
@@ -95,7 +93,7 @@ ps  <- list(protocol(cb, cfg, label = "base"),
                      label = "terse"))
 
 tuning <- tune_protocol(ps, gold)        # compare protocols on the dev split
-winner <- protocol_lock(ps[[1]])         # hash covers prompt+model+params+parser
+winner <- protocol_lock(ps[[1]])         # lock the selected measurement protocol
 v <- validate_protocol(winner, gold)     # evaluate on the test split
 coded <- code_corpus(big_df, winner, "text")
 correction <- gold_correct(coded, gold)  # corrected prevalences with SEs
@@ -114,8 +112,10 @@ tibble::as_tibble(coded)
   split for protocol comparisons.
 - `validate_protocol()` requires a locked protocol on the holdout split, and
   `code_corpus()` always requires a locked protocol.
-- If the prompt, parser, model, parameters, or replicate count changes, lock
-  and validate the revised protocol.
+- The protocol hash covers the codebook, prompt, provider, model, generation
+  parameters, `no_change`, embedding flag, replicate count, parser source, and
+  captured parser values. Lock and validate a revised protocol after any of
+  these change.
 - Tuning, validation, and corpus coding use the protocol's replicate count and
   take the modal parsed label for each unit.
 - Evaluations of a sealed holdout split are appended to `gold_ledger()` and
@@ -273,7 +273,7 @@ LLMR::llm_log_disable()
 archive_build(log, name = NULL)         # parse JSONL -> content-addressed archive
 archive_seal(archive)                   # one root hash; cite it in the paper
 archive_check(archive, results = NULL)  # integrity + completeness linting
-archive_redact(archive)                 # strip text, keep hash families
+archive_redact(archive)                 # requires a seal; adds a public root
 archive_write(archive, dir, overwrite = FALSE); archive_read(dir)
 
 archive_replay(archive, replay_mode = c("queue", "first", "strict_once"))
@@ -308,10 +308,12 @@ responses instead of making provider calls.
 
 ### Redacted archives
 
-`archive_redact()` removes prompts and replies. Original record hashes and the
-seal root remain in the manifest. A public hash is added for each redacted
-record so `archive_check()` can check the distributed files. The manifest
-retains call counts, models, parameters, timings, and token totals.
+`archive_redact()` requires an intact, sealed archive and removes request and
+response text. Original record hashes and the seal root remain in the manifest.
+A public hash is added for each redacted record, and a public root binds those
+hashes to the original root. `archive_check()` recomputes the public root from
+the stored redacted records. The public archive retains call counts, providers,
+models, parameters, timestamps, usage, identifiers, and hash links.
 
 ### Archive generic surface
 

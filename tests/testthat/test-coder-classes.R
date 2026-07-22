@@ -81,7 +81,7 @@ test_that("protocols lock with a content hash over everything that matters", {
   expect_match(pl$hash, "^[a-f0-9]{64}$")
   expect_output(print(pl), "LOCKED")
 
-  # identical inputs hash identically; any change to model or prompt does not
+  # Identical inputs hash identically; a model or prompt change alters the hash.
   pl2 <- protocol_lock(protocol(fix_codebook(), fix_config(), label = "p1"))
   expect_identical(pl$hash, pl2$hash)
   pl3 <- protocol_lock(protocol(fix_codebook(), fix_config("other-model")))
@@ -93,6 +93,11 @@ test_that("protocols lock with a content hash over everything that matters", {
   pl5 <- protocol_lock(protocol(fix_codebook(), fix_config(),
                                 parser = function(text, labels) labels[1]))
   expect_false(identical(pl5$hash, pl$hash))
+
+  cfg_embedding <- fix_config()
+  cfg_embedding$embedding <- TRUE
+  pl6 <- protocol_lock(protocol(fix_codebook(), cfg_embedding))
+  expect_false(identical(pl6$hash, pl$hash))
 })
 
 test_that("protocol uses an internal default parser and accepts ordinary functions", {
@@ -107,6 +112,15 @@ test_that("protocol uses an internal default parser and accepts ordinary functio
   custom <- function(text, labels) labels[[2]]
   expect_identical(protocol(fix_codebook(), fix_config(), parser = custom)$parser,
                    custom)
+})
+
+test_that("protocol requires a positive whole-number replicate count", {
+  expect_error(protocol(fix_codebook(), fix_config(), replicates = 1.9),
+               "finite, positive whole-number scalar")
+  expect_error(protocol(fix_codebook(), fix_config(), replicates = -1),
+               "finite, positive whole-number scalar")
+  expect_error(protocol(fix_codebook(), fix_config(), replicates = NA),
+               "finite, positive whole-number scalar")
 })
 
 test_that("the ecosystem hash convention is pinned (drift guard vs LLMR)", {

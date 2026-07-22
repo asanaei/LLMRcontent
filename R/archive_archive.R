@@ -55,8 +55,8 @@ archive_build <- function(log, name = NULL) {
 #'
 #' Computes a single root hash over the ordered record hashes plus the
 #' environment block. Any subsequent change to any record -- one character
-#' of one prompt -- changes the root. Cite the root in the paper; deposit
-#' the archive; the two now vouch for each other.
+#' of one prompt -- changes the root. Record the root with the deposited
+#' archive so later checks can detect changes.
 #'
 #' @param archive An [archive_build()] result.
 #' @return The archive, sealed, with `$seal` set.
@@ -82,26 +82,25 @@ archive_seal <- function(archive) {
 
 #' Verify an archive's integrity and (optionally) a result's completeness
 #'
-#' Integrity: every record hash is recomputed from the stored verbatim
-#' lines and compared to the manifest -- against the original record hashes
-#' for a full archive, against the `public_record_hash` family for a
-#' redacted one (whose original hashes attest content held elsewhere; see
-#' [archive_redact()]). For a sealed archive the root is recomputed too;
-#' the root always refers to the original content. Completeness: given a
-#' results frame that carries `response_id` (as `LLMR::call_llm_par()`
-#' returns), reports how many of the paper's results map to a logged call
-#' -- numbers without provenance are exactly what this package exists to
-#' make visible.
+#' Integrity checks compare hashes recomputed from the stored record lines
+#' with the applicable manifest hash family. For a sealed archive, the
+#' original root is recomputed from the original manifest hashes. For a
+#' redacted archive, the public root is recomputed from the redacted record
+#' lines rather than from the manifest's public hashes. Completeness checks
+#' report result rows that do not match a logged `response_id`.
 #'
 #' @param archive An `archive`.
 #' @param results Optional data frame with a `response_id` column.
-#' @return A list of class `archive_check`: `intact`, `redacted` (a logical
-#'   redaction flag; when TRUE, `intact` was checked against the
-#'   `public_record_hash` family rather than the original record hashes),
-#'   `root_ok`, `n_records`,
-#'   `bad_records` (indices), `duplicate_response_ids` and
+#' @return A list of class `archive_check`: `records_ok` indicates whether
+#'   every record matches its applicable manifest hash; `root_ok` indicates
+#'   whether the original seal root is valid and is `NA` for an unsealed
+#'   archive; `public_root_ok` indicates whether the public root is valid and
+#'   is `NA` for an unredacted archive; `intact` is the conjunction of the
+#'   record comparison and every applicable root check. The remaining fields
+#'   are `redacted`, `n_records`, `bad_records` (indices),
+#'   `duplicate_response_ids` and
 #'   `duplicate_request_hashes` (each a character vector of any values that
-#'   appear on more than one record -- a sign of a malformed or merged log),
+#'   appear on more than one record),
 #'   `n_results`, `n_matched`, and `unmatched_ids`. The last three are typed
 #'   missing or empty values when `results` is not supplied.
 #' @examples
@@ -125,13 +124,22 @@ archive_check <- function(archive, results = NULL) {
   } else {
     archive$manifest$record_hash
   }
-  bad <- which(rehash != reference)
+  bad <- which(is.na(reference) | rehash != reference)
+  records_ok <- length(bad) == 0L
   root_ok <- NA
   if (isTRUE(archive$sealed)) {
     root <- .hash_chr(paste(c(archive$manifest$record_hash,
                               .hash_obj(archive$env)), collapse = "|"))
     root_ok <- identical(root, archive$seal$root)
   }
+  public_root_ok <- NA
+  if (isTRUE(archive$redacted)) {
+    public_root <- .hash_chr(paste(c(rehash, archive$seal$root),
+                                   collapse = "|"))
+    public_root_ok <- identical(public_root, archive$seal$public_root)
+  }
+  root_checks <- c(root_ok, public_root_ok)
+  intact <- records_ok && all(root_checks[!is.na(root_checks)])
   # Duplicate diagnostics: a well-formed log gives each call a distinct
   # response_id, and a distinct request_hash unless a call was genuinely
   # repeated. Duplicates in either are a sign of a malformed or merged log and
@@ -149,8 +157,9 @@ archive_check <- function(archive, results = NULL) {
   rh_present <- rh[!is.na(rh)]
   dup_request_hashes <- unique(rh_present[duplicated(rh_present)])
 
-  out <- list(intact = length(bad) == 0L, redacted = isTRUE(archive$redacted),
-              root_ok = root_ok,
+  out <- list(records_ok = records_ok, root_ok = root_ok,
+              public_root_ok = public_root_ok, intact = intact,
+              redacted = isTRUE(archive$redacted),
               n_records = nrow(archive$manifest), bad_records = bad,
               duplicate_response_ids = dup_response_ids,
               duplicate_request_hashes = dup_request_hashes,
@@ -172,15 +181,26 @@ archive_check <- function(archive, results = NULL) {
 
 #' @export
 print.archive_check <- function(x, ...) {
-  cat(sprintf("<archive_check | %d record(s) | integrity%s: %s%s>\n",
-              x$n_records,
-              if (isTRUE(x$redacted)) " (public hashes)" else "",
-              if (x$intact) "INTACT" else
-                sprintf("TAMPERED (%d bad)", length(x$bad_records)),
-              if (!is.na(x$root_ok))
-                paste0(" | seal: ", if (x$root_ok) "VALID" else "BROKEN") else ""))
+  fields <- c(
+    sprintf("archive_check | %d record(s)", x$n_records),
+    paste0("integrity: ", if (isTRUE(x$intact)) "INTACT" else "BROKEN"),
+    sprintf("records%s: %s%s",
+            if (isTRUE(x$redacted)) " (public hashes)" else "",
+            if (isTRUE(x$records_ok)) "VALID" else "BROKEN",
+            if (isTRUE(x$records_ok)) "" else
+              sprintf(" (%d bad)", length(x$bad_records)))
+  )
+  if (!is.na(x$root_ok)) {
+    fields <- c(fields,
+                paste0("seal: ", if (x$root_ok) "VALID" else "BROKEN"))
+  }
+  if (!is.na(x$public_root_ok)) {
+    fields <- c(fields, paste0("public root: ",
+                               if (x$public_root_ok) "VALID" else "BROKEN"))
+  }
+  cat("<", paste(fields, collapse = " | "), ">\n", sep = "")
   if (isTRUE(x$redacted)) {
-    cat("  original hash tree preserved; content attestable against the unredacted original\n")
+    cat("  redacted records are checked against the sealed public root\n")
   }
   if (!is.na(x$n_results)) {
     cat(sprintf("  completeness: %d/%d result rows map to a logged call\n",
@@ -199,23 +219,19 @@ print.archive_check <- function(x, ...) {
 
 #' Redact an archive's content while keeping its hash tree
 #'
-#' Removes prompts and reply text from every record and re-serializes them
-#' with a `redacted` marker. Two hash families then coexist, explicitly:
+#' Removes request and response text from every record and re-serializes the
+#' record with a `redacted` marker. The original record hashes and seal root
+#' remain unchanged. A public hash is stored for each redacted record, and a
+#' public root binds the ordered public hashes to the original seal root.
+#' [archive_check()] recomputes this public root from the redacted record lines.
 #'
-#' - the **original** record hashes and the seal root stay in the manifest
-#'   untouched -- they attest the full content, checkable by whoever holds
-#'   the unredacted archive (the authors, under IRB terms);
-#' - a **public** hash per redacted record (`public_record_hash`) is added,
-#'   and [archive_check()] verifies a redacted archive against these, so
-#'   the public artifact has its own working integrity check.
+#' A redacted record retains provider, model, parameters, timestamps, usage,
+#' identifiers, and hash links. Request and response text are removed.
 #'
-#' What a reviewer gets from the public artifact: how many calls, to which
-#' models, with which parameters, when, at what token cost, under which
-#' root -- everything except the sentences.
-#'
-#' @param archive An `archive` (not already redacted).
+#' @param archive An intact, sealed `archive` that has not been redacted.
 #' @return The archive with content removed, `$redacted = TRUE`, and
-#'   `public_record_hash` filled in the manifest.
+#'   `public_record_hash` filled in the manifest and `public_root` stored in
+#'   the seal.
 #' @examples
 #' log <- tempfile(fileext = ".jsonl")
 #' writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
@@ -224,16 +240,25 @@ print.archive_check <- function(x, ...) {
 #'   '"usage":{"sent":5,"rec":2},"response_id":"r-1","text":"reply"}'), log)
 #' a <- archive_seal(archive_build(log))
 #' r <- archive_redact(a)
-#' archive_check(r)                       # verifies against public hashes
+#' archive_check(r)                       # verifies the public root
 #' identical(r$seal$root, a$seal$root)    # original root preserved
 #' @export
 archive_redact <- function(archive) {
   stopifnot(inherits(archive, "archive"))
   if (isTRUE(archive$redacted)) abort("This archive is already redacted.")
+  if (!isTRUE(archive$sealed)) {
+    abort("archive_redact() requires a sealed archive; call archive_seal() first.")
+  }
+  if (!isTRUE(archive_check(archive)$intact)) {
+    abort("archive_redact() requires an intact sealed archive.")
+  }
   archive$records <- lapply(archive$records, function(r) {
-    rec <- r$rec
+    rec <- .archive_record_from_raw(r)
+    request <- LLMR::llm_request_from_log(rec, on_unsupported = "quiet")
+    parameters <- request$config$model_params
     rec$request <- NULL
     rec$text <- NULL
+    if (length(parameters)) rec$parameters <- parameters
     rec$redacted <- TRUE
     list(raw = as.character(jsonlite::toJSON(rec, auto_unbox = TRUE,
                                              null = "null")),
@@ -241,6 +266,8 @@ archive_redact <- function(archive) {
   })
   archive$manifest$public_record_hash <-
     vapply(archive$records, function(r) .hash_chr(r$raw), character(1))
+  archive$seal$public_root <- .hash_chr(paste(
+    c(archive$manifest$public_record_hash, archive$seal$root), collapse = "|"))
   archive$redacted <- TRUE
   archive
 }

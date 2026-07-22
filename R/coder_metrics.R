@@ -59,6 +59,11 @@
 #' @return An `llmr_agreement` object (mean pairwise agreement,
 #'   Krippendorff's alpha, per-unit majorities); see
 #'   `LLMR::llm_agreement()`.
+#' @examples
+#' labels <- data.frame(
+#'   coder_a = c("yes", "no", "yes", "no"),
+#'   coder_b = c("yes", "no", "no", "no"))
+#' coder_agreement(labels, c("coder_a", "coder_b"))
 #' @export
 coder_agreement <- function(x, cols = NULL) {
   if (inherits(x, "gold_set")) {

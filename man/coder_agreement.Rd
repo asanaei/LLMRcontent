@@ -24,3 +24,9 @@ human-human reliability a methods section must report), or any data frame
 plus the label columns to compare (e.g. model replicates from
 \code{\link[=code_corpus]{code_corpus()}}, or one human column and one model column).
 }
+\examples{
+labels <- data.frame(
+  coder_a = c("yes", "no", "yes", "no"),
+  coder_b = c("yes", "no", "no", "no"))
+coder_agreement(labels, c("coder_a", "coder_b"))
+}

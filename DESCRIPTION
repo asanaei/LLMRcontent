@@ -4,11 +4,10 @@ Title: LLM-Assisted Content Analysis for the Social Sciences
 Version: 0.2.0
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
-Description: Content analysis in which large language model labels are treated
-    as measurements, built on 'LLMR': labels are validated against held-out
-    human labels, and the remaining error is carried into corrected estimates.
-    Audits state how sensitive a coded conclusion is to the coding choices, and
-    sealed archives let a reviewer rerun the analysis.
+Description: Treats language-model labels as measurements for quantitative
+    content analysis. Coding protocols are validated against held-out human
+    labels, used for error-corrected prevalence estimates, and archived with
+    the underlying call records.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -20,6 +19,7 @@ Imports:
     tibble,
     rlang,
     cli,
+    codetools,
     digest,
     jsonlite,
     stats,

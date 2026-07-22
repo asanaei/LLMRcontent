@@ -45,6 +45,11 @@ protocol <- function(codebook, config, prompt = NULL, parser = NULL,
   if (!inherits(config, "llm_config")) {
     abort("`config` must be an LLMR::llm_config() object.")
   }
+  if (!is.numeric(replicates) || length(replicates) != 1L ||
+      !is.finite(replicates) || replicates <= 0 ||
+      replicates != floor(replicates)) {
+    abort("`replicates` must be a finite, positive whole-number scalar.")
+  }
   prompt <- prompt %||% paste(
     "{codebook}",
     "",
@@ -58,11 +63,24 @@ protocol <- function(codebook, config, prompt = NULL, parser = NULL,
   }
   structure(
     list(codebook = codebook, config = config, prompt = prompt,
-         parser = parser, replicates = max(1L, as.integer(replicates)),
+         parser = parser, replicates = as.integer(replicates),
          label = label %||% paste0(config$provider, "/", config$model),
          locked = FALSE, hash = NULL),
     class = "coding_protocol"
   )
+}
+
+.parser_hash_spec <- function(parser) {
+  variables <- codetools::findGlobals(parser, merge = FALSE)$variables
+  parser_env <- environment(parser)
+  captured <- stats::setNames(lapply(variables, function(variable) {
+    if (exists(variable, envir = parser_env, inherits = TRUE)) {
+      get(variable, envir = parser_env, inherits = TRUE)
+    } else {
+      NULL
+    }
+  }), variables)
+  list(source = paste(deparse(parser), collapse = "\n"), captured = captured)
 }
 
 .protocol_hash <- function(x) {
@@ -72,21 +90,20 @@ protocol <- function(codebook, config, prompt = NULL, parser = NULL,
     provider = x$config$provider,
     model = x$config$model,
     params = x$config$model_params,
+    no_change = x$config$no_change,
+    embedding = x$config$embedding,
     replicates = x$replicates,
-    parser = x$parser
+    parser = .parser_hash_spec(x$parser)
   ))
 }
 
 #' Lock a protocol
 #'
-#' Computes and stores the protocol's content hash -- over the codebook, the prompt
-#' template, the provider, model, all model parameters, the replicate count,
-#' **and the parser** (by its deparsed source; the parser decides the final
-#' label, so it is part of the instrument).
-#' [validate_protocol()] on the sealed split and [code_corpus()] both require
-#' a locked protocol and verify its current content against the stored hash,
-#' so the validated instrument and the deployed instrument are the same object,
-#' verifiably. Hashes use `LLMR::llm_hash()`, the ecosystem-wide convention.
+#' Computes and stores a content hash covering the codebook, prompt template,
+#' provider, model, generation parameters, `no_change`, embedding flag,
+#' replicate count, and parser source and captured values. [validate_protocol()]
+#' on the sealed split and [code_corpus()] require a locked protocol and compare
+#' its current content with the stored hash. Hashes use `LLMR::llm_hash()`.
 #'
 #' @param x A [protocol()].
 #' @return The protocol, locked, with `$hash` set.

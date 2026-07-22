@@ -17,3 +17,11 @@ A tibble of that split's rows.
 \description{
 Rows of a gold set belonging to one split
 }
+\examples{
+set.seed(110)
+g <- gold_set(
+  data.frame(text = paste("unit", 1:40),
+             label = rep(c("x", "y"), each = 20)),
+  "text", "label", split = c(dev = 0.5, test = 0.5))
+head(gold_split(g, "dev"))
+}

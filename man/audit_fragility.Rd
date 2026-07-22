@@ -27,3 +27,12 @@ cell before the conclusion -- as defined by the \code{flip} rule -- changes.
 \code{Inf} when no cell in the grid flips, which is a statement about this
 grid, not a proof of robustness.
 }
+\examples{
+plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+  function(d) mean(d$label == "yes") - 0.25, c("yes", "no"), "{text}")
+plan <- audit_add_models(plan,
+  list(demo = LLMR::llm_config("groq", "demo", temperature = 0)))
+runner <- function(x, ...) transform(x, response_text = c("yes", "no"))
+audit <- audit_run(plan, .runner = runner)
+audit_fragility(audit)
+}

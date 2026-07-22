@@ -25,3 +25,12 @@ at each rank) is not drawn; the returned tibble carries the \code{rank} together
 with every grid column, so you can lay out that panel yourself or read off
 which specification produced any point.
 }
+\examples{
+plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+  function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+plan <- audit_add_models(plan,
+  list(demo = LLMR::llm_config("groq", "demo", temperature = 0)))
+runner <- function(x, ...) transform(x, response_text = c("yes", "no"))
+audit <- audit_run(plan, .runner = runner)
+audit_curve(audit)
+}

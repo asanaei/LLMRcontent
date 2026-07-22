@@ -107,6 +107,11 @@ print.codebook <- function(x, ...) {
 #' Labels defined by a codebook
 #' @param x A [codebook()].
 #' @return Character vector of category labels.
+#' @examples
+#' cb <- codebook("tone", "one sentence", list(
+#'   cb_category("positive", "Approving or hopeful."),
+#'   cb_category("negative", "Critical or alarmed.")))
+#' codebook_labels(cb)
 #' @export
 codebook_labels <- function(x) {
   stopifnot(inherits(x, "codebook"))
@@ -122,6 +127,11 @@ codebook_labels <- function(x) {
 #'
 #' @param x A [codebook()].
 #' @return A character scalar (64 hex digits).
+#' @examples
+#' cb <- codebook("tone", "one sentence", list(
+#'   cb_category("positive", "Approving or hopeful."),
+#'   cb_category("negative", "Critical or alarmed.")))
+#' codebook_hash(cb)
 #' @export
 codebook_hash <- function(x) {
   stopifnot(inherits(x, "codebook"))

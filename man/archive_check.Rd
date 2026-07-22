@@ -12,27 +12,26 @@ archive_check(archive, results = NULL)
 \item{results}{Optional data frame with a \code{response_id} column.}
 }
 \value{
-A list of class \code{archive_check}: \code{intact}, \code{redacted} (a logical
-redaction flag; when TRUE, \code{intact} was checked against the
-\code{public_record_hash} family rather than the original record hashes),
-\code{root_ok}, \code{n_records},
-\code{bad_records} (indices), \code{duplicate_response_ids} and
+A list of class \code{archive_check}: \code{records_ok} indicates whether
+every record matches its applicable manifest hash; \code{root_ok} indicates
+whether the original seal root is valid and is \code{NA} for an unsealed
+archive; \code{public_root_ok} indicates whether the public root is valid and
+is \code{NA} for an unredacted archive; \code{intact} is the conjunction of the
+record comparison and every applicable root check. The remaining fields
+are \code{redacted}, \code{n_records}, \code{bad_records} (indices),
+\code{duplicate_response_ids} and
 \code{duplicate_request_hashes} (each a character vector of any values that
-appear on more than one record -- a sign of a malformed or merged log),
+appear on more than one record),
 \code{n_results}, \code{n_matched}, and \code{unmatched_ids}. The last three are typed
 missing or empty values when \code{results} is not supplied.
 }
 \description{
-Integrity: every record hash is recomputed from the stored verbatim
-lines and compared to the manifest -- against the original record hashes
-for a full archive, against the \code{public_record_hash} family for a
-redacted one (whose original hashes attest content held elsewhere; see
-\code{\link[=archive_redact]{archive_redact()}}). For a sealed archive the root is recomputed too;
-the root always refers to the original content. Completeness: given a
-results frame that carries \code{response_id} (as \code{LLMR::call_llm_par()}
-returns), reports how many of the paper's results map to a logged call
--- numbers without provenance are exactly what this package exists to
-make visible.
+Integrity checks compare hashes recomputed from the stored record lines
+with the applicable manifest hash family. For a sealed archive, the
+original root is recomputed from the original manifest hashes. For a
+redacted archive, the public root is recomputed from the redacted record
+lines rather than from the manifest's public hashes. Completeness checks
+report result rows that do not match a logged \code{response_id}.
 }
 \examples{
 log <- tempfile(fileext = ".jsonl")

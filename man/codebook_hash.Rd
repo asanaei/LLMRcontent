@@ -18,3 +18,9 @@ rule, or example changes the hash; the hash is recorded in locked
 protocols and reports, which is what makes "we used codebook v1.2"
 verifiable rather than aspirational.
 }
+\examples{
+cb <- codebook("tone", "one sentence", list(
+  cb_category("positive", "Approving or hopeful."),
+  cb_category("negative", "Critical or alarmed.")))
+codebook_hash(cb)
+}

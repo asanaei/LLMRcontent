@@ -169,6 +169,14 @@ print.audit <- function(x, ...) {
 #'
 #' @param audit An [audit_run()] result.
 #' @return A tibble: `cell`, `unit_id`, `label`, and `response_id`.
+#' @examples
+#' plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+#'   function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+#' plan <- audit_add_models(plan,
+#'   list(demo = LLMR::llm_config("groq", "demo", temperature = 0)))
+#' runner <- function(x, ...) transform(x, response_text = c("yes", "no"))
+#' audit <- audit_run(plan, .runner = runner)
+#' audit_units(audit)
 #' @export
 audit_units <- function(audit) {
   stopifnot(inherits(audit, "audit"))
@@ -196,6 +204,14 @@ as_tibble.audit <- function(x, ...) {
 #'   returned NA), and `status` (`"ok"`, or `"no_valid_estimates"` when no
 #'   cell produced an estimate, or `"reference_failed"` when the reference
 #'   cell's estimate is NA, in which case the summary columns are NA).
+#' @examples
+#' plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+#'   function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+#' plan <- audit_add_models(plan,
+#'   list(demo = LLMR::llm_config("groq", "demo", temperature = 0)))
+#' runner <- function(x, ...) transform(x, response_text = c("yes", "no"))
+#' audit <- audit_run(plan, .runner = runner)
+#' audit_stability(audit)
 #' @export
 audit_stability <- function(audit, reference = 1L) {
   stopifnot(inherits(audit, "audit"))
@@ -246,6 +262,14 @@ audit_stability <- function(audit, reference = 1L) {
 #' @param plot Draw the figure (needs `ggplot2`); default `FALSE`.
 #' @return The ordered tibble (the estimate ranking plus the grid coordinates),
 #'   returned visibly whether or not the figure is drawn.
+#' @examples
+#' plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+#'   function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+#' plan <- audit_add_models(plan,
+#'   list(demo = LLMR::llm_config("groq", "demo", temperature = 0)))
+#' runner <- function(x, ...) transform(x, response_text = c("yes", "no"))
+#' audit <- audit_run(plan, .runner = runner)
+#' audit_curve(audit)
 #' @export
 audit_curve <- function(audit, plot = FALSE) {
   stopifnot(inherits(audit, "audit"))
@@ -329,6 +353,14 @@ threshold_flip <- function(at) {
 #'   `"no_flip"`, or `"reference_failed"`), `reference`, and
 #'   `reference_estimate`. A failed reference has no conclusion to flip, so
 #'   its fragility is `Inf` and its flipping cells are an empty integer vector.
+#' @examples
+#' plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+#'   function(d) mean(d$label == "yes") - 0.25, c("yes", "no"), "{text}")
+#' plan <- audit_add_models(plan,
+#'   list(demo = LLMR::llm_config("groq", "demo", temperature = 0)))
+#' runner <- function(x, ...) transform(x, response_text = c("yes", "no"))
+#' audit <- audit_run(plan, .runner = runner)
+#' audit_fragility(audit)
 #' @export
 audit_fragility <- function(audit, reference = 1L, flip = sign_flip()) {
   stopifnot(inherits(audit, "audit"), is.function(flip))

@@ -22,3 +22,11 @@ enforcement -- an in-memory object cannot stop a determined user, and
 does not pretend to; archive the study's LLM call log (see the archive
 workflow) when tamper evidence is needed.
 }
+\examples{
+set.seed(110)
+g <- gold_set(
+  data.frame(text = paste("unit", 1:40),
+             label = rep(c("x", "y"), each = 20)),
+  "text", "label", split = c(dev = 0.5, test = 0.5))
+gold_ledger(g)
+}

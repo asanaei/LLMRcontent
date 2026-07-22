@@ -15,8 +15,8 @@ The archive, sealed, with \verb{$seal} set.
 \description{
 Computes a single root hash over the ordered record hashes plus the
 environment block. Any subsequent change to any record -- one character
-of one prompt -- changes the root. Cite the root in the paper; deposit
-the archive; the two now vouch for each other.
+of one prompt -- changes the root. Record the root with the deposited
+archive so later checks can detect changes.
 }
 \examples{
 log <- tempfile(fileext = ".jsonl")

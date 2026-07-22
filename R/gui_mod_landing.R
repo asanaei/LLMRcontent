@@ -34,7 +34,7 @@ mod_landing_server <- function(id, on_open) {
       bslib::layout_column_wrap(
         width = "280px",
         lapply(workflows, function(w) {
-          available <- LLMR.shiny::pkg_available(w$package)
+          available <- pkg_available(w$package)
           bslib::card(
             class = if (available) "" else "bg-light text-muted",
             bslib::card_header(w$title),

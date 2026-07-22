@@ -20,3 +20,8 @@ The plan, extended.
 \description{
 Add prompt paraphrases
 }
+\examples{
+plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+  function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+audit_add_prompts(plan, concise = "Classify this text: {text}")
+}

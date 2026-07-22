@@ -22,3 +22,9 @@ The plan, extended.
 \description{
 Add measurement perturbations
 }
+\examples{
+plan <- audit_plan(data.frame(text = c("a", "b")), "text",
+  function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+audit_add_perturbations(
+  plan, label_order = "reversed", temperature = 0.7)
+}
