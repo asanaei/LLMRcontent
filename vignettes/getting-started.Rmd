@@ -12,9 +12,11 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
 LLMRcontent treats model labels as measured variables. A study defines the
-instrument, validates it against held-out human labels, and carries the
-remaining error into corpus estimates. The workflow below runs without a
-provider key or a network connection.
+instrument, develops candidate protocols on designated rows, validates one
+locked protocol against held-out human labels, and carries the remaining
+classification error into corpus estimates. Robustness checks show how
+specified measurement choices affect the estimand, while replication archives
+connect results to recorded calls.
 
 ```{r}
 library(LLMRcontent)
@@ -40,6 +42,9 @@ cb
 
 The gold set stores its split assignment and seals the test split. Stable unit
 identifiers provide the later link between audited rows and the coded corpus.
+Before collecting labels, `gold_size()` can compare candidate sample sizes for
+a target agreement-interval width. The development split supports protocol
+selection; the test split is reserved for evaluating the selected protocol.
 
 ```{r}
 gold_data <- data.frame(
@@ -65,7 +70,10 @@ gold
 ```
 
 A locked protocol hashes the codebook, prompt, model configuration, and parser.
-The same object must be used for validation and corpus coding.
+In a full study, `tune_protocol()` compares candidates on the development
+split before one is locked; this compact example fixes one protocol so the
+holdout result and corrected prevalence remain the focus. The same locked
+object must be used for validation and corpus coding.
 
 ```{r}
 cfg <- LLMR::llm_config("groq", "offline-demo", temperature = 0)
@@ -76,37 +84,18 @@ locked <- protocol_lock(
 locked
 ```
 
-Execution functions accept a `.runner` with the data-frame contract of LLMR's
-parallel runner. This deterministic runner reads the unit text carried in the
-experiments and does not contact a provider.
+Execution functions accept a `.runner` through an interface in which a function
+receives request rows and returns response rows; this offline response function
+applies a fixed keyword rule without contacting a provider.
 
 ```{r}
-offline_coder <- function(experiments, ...) {
-  text <- tolower(experiments$text)
-  user <- vapply(experiments$messages, `[[`, "", "user")
-  temperature <- vapply(experiments$config, function(x) {
-    value <- x$model_params$temperature
-    if (is.null(value)) 0 else as.numeric(value)
-  }, numeric(1))
-
-  label <- ifelse(
-    grepl("benefit", text, fixed = TRUE),
-    "supportive",
-    "critical"
+offline_coder <- function(requests, ...) {
+  text <- tolower(requests$text)
+  requests$response_text <- ifelse(
+    grepl("benefit", text, fixed = TRUE), "supportive", "critical"
   )
-
-  mixed <- grepl("mixed", text, fixed = TRUE)
-  reversed <- grepl("critical, supportive", user, fixed = TRUE)
-  label[mixed & xor(reversed, temperature > 0)] <- "supportive"
-  label[mixed & !xor(reversed, temperature > 0)] <- "critical"
-
-  label[grepl("benefit case (3|7|11|15)$", text)] <- "critical"
-
-  experiments$response_text <- label
-  experiments$sent_tokens <- 12L
-  experiments$rec_tokens <- 1L
-  experiments$success <- TRUE
-  experiments
+  requests$response_text[grepl("benefit case (3|7|11|15)$", text)] <- "critical"
+  requests
 }
 ```
 
@@ -123,8 +112,13 @@ validation <- validate_protocol(
 validation
 ```
 
-The corpus includes the audited units and new statements. The same runner and
-locked protocol produce the model labels.
+The validation result reports holdout accuracy, its interval, category-level
+performance, and parse failures. These quantities describe agreement with the
+specified human labels. They do not establish that the codebook captures the
+construct, and repeated holdout use appears in the gold-set ledger.
+
+The corpus includes the audited units and new statements. The same response
+function and locked protocol produce the model labels.
 
 ```{r}
 new_corpus <- data.frame(
@@ -160,6 +154,11 @@ corrected <- gold_correct(coded, gold)
 
 tibble::as_tibble(corrected)
 ```
+
+The corrected estimates use the holdout confusion matrix to adjust the corpus
+shares. Their standard errors carry uncertainty from the finite holdout into
+the prevalence estimates. Interpretation remains conditional on the codebook,
+the human labels, and the match between holdout and corpus coding errors.
 
 `LLMR::report()` combines the validation result with the locked protocol and
 gold set. The report includes the holdout ledger, which now records the
@@ -215,62 +214,24 @@ audit_stability(audit)
 audit_fragility(audit)
 ```
 
-The offline runner writes no LLMR audit records. The next example creates two
-records in the format read by `archive_build()`.
+`audit_stability()` describes variation inside the specified grid, not across
+all possible measurement choices. `audit_fragility()` measures the smallest
+number of changed grid dimensions needed to alter the stated conclusion. The
+fixed response function used here isolates the audit structure; a substantive
+study should include defensible prompt and model alternatives.
+
+The offline response function writes no LLMR call log, so one compact JSON
+record supplies the fields needed to demonstrate archive construction.
 
 ```{r}
 log_path <- tempfile(fileext = ".jsonl")
-
-records <- list(
-  list(
-    ts = "2026-07-01T10:00:01+0000",
-    schema_version = "1.0",
-    kind = "call",
-    provider = "groq",
-    model = "offline-demo",
-    status = 200L,
-    request = list(
-      messages = list(
-        list(role = "user", content = "Classify statement 1")
-      ),
-      temperature = 0
-    ),
-    usage = list(sent = 12L, rec = 1L),
-    response_id = "offline-1",
-    text = "supportive"
-  ),
-  list(
-    ts = "2026-07-01T10:00:02+0000",
-    schema_version = "1.0",
-    kind = "call",
-    provider = "groq",
-    model = "offline-demo",
-    status = 200L,
-    request = list(
-      messages = list(
-        list(role = "user", content = "Classify statement 2")
-      ),
-      temperature = 0
-    ),
-    usage = list(sent = 12L, rec = 1L),
-    response_id = "offline-2",
-    text = "critical"
-  )
-)
-
-lines <- vapply(
-  records,
-  function(x) {
-    as.character(jsonlite::toJSON(
-      x,
-      auto_unbox = TRUE,
-      null = "null"
-    ))
-  },
-  character(1)
-)
-
-writeLines(lines, log_path, useBytes = TRUE)
+writeLines(paste0(
+  '{"ts":"2026-07-01T10:00:01+0000","schema_version":"1.0","kind":"call",',
+  '"provider":"groq","model":"offline-demo","status":200,',
+  '"request":{"messages":[{"role":"user","content":"Classify statement 1"}],',
+  '"temperature":0},"usage":{"sent":12,"rec":1},',
+  '"response_id":"offline-1","text":"supportive"}'
+), log_path)
 
 archive <- archive_seal(
   archive_build(log_path, name = "offline-study")
@@ -278,11 +239,14 @@ archive <- archive_seal(
 
 archive_check(
   archive,
-  results = data.frame(
-    response_id = c("offline-1", "offline-2")
-  )
+  results = data.frame(response_id = "offline-1")
 )
 ```
+
+The check compares the stored record with its content hash and seal, then
+matches the result identifier to the logged call. A successful check establishes
+integrity and linkage; it does not promise the same reply from a changed model
+or provider.
 
 `archive_write()` stores the records and manifest in a directory. After
 `archive_read()`, `archive_check()` verifies the copy and `LLMR::report()`

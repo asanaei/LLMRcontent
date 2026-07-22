@@ -16,9 +16,9 @@ An \code{archive} (unsealed).
 }
 \description{
 Parses a JSONL log written by \code{LLMR::llm_log_enable()} into a
-content-addressed archive: one entry per call, each carrying a record
-hash (over the verbatim line) and, where the request body was logged, a
-canonical request hash. Environment metadata (R, LLMR, and log schema
+archive whose records are identified by content hashes. Each call carries a
+record hash (over the verbatim line) and, where the request body was logged,
+a canonical request hash. Environment metadata (R, LLMR, and log schema
 versions) is captured alongside.
 }
 \examples{

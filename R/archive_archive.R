@@ -1,5 +1,6 @@
 # archive_archive.R -------------------------------------------------------------
-# The archive: every logged call, content-addressed. Two hashes per record,
+# The archive: every logged call, identified by content hashes. Two hashes per
+# record,
 # both computed by LLMR::llm_log_read(): the record hash (over the verbatim log
 # line: tamper evidence) and the request hash (LLMR::llm_request_hash over the
 # call's canonical turns and generation parameters: identity of the question
@@ -8,9 +9,9 @@
 #' Build a replication archive from an LLMR audit log
 #'
 #' Parses a JSONL log written by `LLMR::llm_log_enable()` into a
-#' content-addressed archive: one entry per call, each carrying a record
-#' hash (over the verbatim line) and, where the request body was logged, a
-#' canonical request hash. Environment metadata (R, LLMR, and log schema
+#' archive whose records are identified by content hashes. Each call carries a
+#' record hash (over the verbatim line) and, where the request body was logged,
+#' a canonical request hash. Environment metadata (R, LLMR, and log schema
 #' versions) is captured alongside.
 #'
 #' @param log Path to the JSONL audit log.

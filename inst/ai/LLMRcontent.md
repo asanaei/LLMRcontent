@@ -7,16 +7,15 @@ description: >-
 
 # LLMRcontent usage reference
 
-This reference lists the main workflows, object contracts, and common errors.
-See `vignette("getting-started", package = "LLMRcontent")` for a complete
-offline example.
+This reference lists the main workflows, returned object structures, and
+common errors. See `vignette("getting-started", package = "LLMRcontent")` for
+a complete coding, audit, and archive example.
 
 LLMRcontent provides three related workflows. The coding workflow defines and
 validates a protocol before applying it to a corpus. The audit workflow
 recomputes an estimator under alternative prompts, models, label orders, and
 temperatures. The archive workflow stores LLMR call records and supports
-integrity checks and offline replay. The execution functions use the same
-`.runner` contract.
+integrity checks and offline replay.
 
 ## Install
 
@@ -129,7 +128,8 @@ tibble::as_tibble(coded)
   `protocol =` to assemble the ledger and instrument context.
 - `code_corpus()` returns a `coded_corpus`. Its `data`, `protocol_hash`,
   `protocol_label`, `text`, `label`, `id`, and `labels` fields carry the coded
-  rows and linkage provenance. Use `tibble::as_tibble()` for the row table.
+  rows and information linking coded rows to source units and the locked
+  protocol. Use `tibble::as_tibble()` for the row table.
 - `gold_size()` returns `recommended_size` and the full `candidates` grid.
 
 ### Coding error meanings
@@ -155,9 +155,10 @@ plan, then call `audit_run()`. The result contains one estimate per grid cell.
 counts how many grid dimensions separate the reference cell from the nearest
 cell that changes the stated conclusion.
 
-An `audit` stores its per-cell table in `cells`, its typed unit-level trail in
-`units`, and the originating `audit_plan` in `plan`. `audit_units()` returns
-the unit trail and `tibble::as_tibble()` returns the cell table.
+An `audit` stores its per-cell table in `cells`, its unit-level records with
+consistent columns in `units`, and the originating `audit_plan` in `plan`.
+`audit_units()` returns the unit records and `tibble::as_tibble()` returns the
+cell table.
 
 ### Core API (exact signatures)
 
@@ -236,7 +237,7 @@ LLMR::report(audit)
   as `degenerate` with `p = NA`; that flag is the correct output, not a
   failure. `type = "irrelevant_text"` needs researcher-supplied
   construct-free `texts` and re-runs the grid (costs calls unless a
-  `.runner` is injected). Set a seed before either for reproducibility.
+  response function is supplied). Set a seed before either for reproducibility.
 - Report the cell estimates together with the stability and fragility
   summaries.
 
@@ -252,7 +253,7 @@ LLMR::report(audit)
 
 `archive_build()` reads an LLMR JSONL log and stores its records and manifest.
 `archive_seal()` adds a root hash, `archive_check()` checks stored record hashes
-and result identifiers, and `archive_replay()` returns a runner that serves
+and result identifiers, and `archive_replay()` returns a function that serves
 stored responses. `archive_redact()` removes prompts and replies when those
 texts cannot be distributed.
 
@@ -270,7 +271,7 @@ LLMR::llm_log_disable()
 ### Core API (exact signatures)
 
 ```r
-archive_build(log, name = NULL)         # parse JSONL -> content-addressed archive
+archive_build(log, name = NULL)         # records are identified by content hashes
 archive_seal(archive)                   # one root hash; cite it in the paper
 archive_check(archive, results = NULL)  # integrity + completeness linting
 archive_redact(archive)                 # requires a seal; adds a public root
@@ -299,12 +300,11 @@ archive_write(a, "replication/llm-archive")
 # reviewer side:
 b <- archive_read("replication/llm-archive")
 archive_check(b)                        # reading and verifying are separate acts
-replay <- archive_replay(b)             # pass as `.runner =` to recompute offline
+replay <- archive_replay(b)             # function serving stored responses
 ```
 
-The object returned by `archive_replay()` follows the `.runner` contract. Pass
-it to `code_corpus()` or `audit_run()` through `.runner =` to use stored
-responses instead of making provider calls.
+The function returned by `archive_replay()` serves stored responses instead of
+making provider calls.
 
 ### Redacted archives
 
@@ -315,7 +315,7 @@ hashes to the original root. `archive_check()` recomputes the public root from
 the stored redacted records. The public archive retains call counts, providers,
 models, parameters, timestamps, usage, identifiers, and hash links.
 
-### Archive generic surface
+### Methods for archive objects
 
 - `LLMR::diagnostics(archive)` returns a one-row tibble with `n_records`,
   `sealed`, `root`, `redacted`, `n_open_pinnable`, and `n_api_contingent`.
@@ -339,8 +339,8 @@ models, parameters, timestamps, usage, identifiers, and hash links.
   Repeated requests are served in archived order. Records without message
   content are excluded, and redacted archives cannot be replayed.
 - `archive_drift()` re-issues real calls. Supply either `fraction` or `n`; when
-  neither is supplied it samples fraction 0.05. The `.runner` argument is the
-  offline test seam. Exact reproduction is expected only for temperature-0
+  neither is supplied it samples fraction 0.05. A supplied response function
+  supports offline tests. Exact reproduction is expected only for temperature-0
   calls on pinned open-weight backends.
 - `archive_write()` refuses an existing target directory unless
   `overwrite = TRUE` is explicit.
@@ -354,15 +354,19 @@ models, parameters, timestamps, usage, identifiers, and hash links.
 - check prints TAMPERED -> a stored line no longer matches its hash;
   diff against your deposited copy.
 
-## Offline seam (tests, vignettes, dry runs)
+## Offline execution for tests, examples, and dry runs
 
 Execution functions accept a `.runner` in place of the default provider call.
-The runner receives an `experiments` tibble with `config` and `messages` list
-columns. It must return that data with a `response_text` column. Token columns
-are retained when present, and supplied `response_id` values remain available
-to functions that keep the unit-level call records. When a runner supplies a
-`success` column, failed rows abort the operation rather than becoming labels
-or estimates.
+The function receives a data frame of requests with `config` and `messages`
+list columns. It must return those rows with a `response_text` column. Token
+columns are retained when present, and supplied `response_id` values remain
+available to functions that keep the unit-level call records. When the function
+supplies a `success` column, failed rows abort the operation rather than
+becoming labels or estimates.
+
+The function returned by `archive_replay()` can be passed through the `.runner`
+argument of `code_corpus()` or `audit_run()` to recompute results from stored
+responses.
 
 ```r
 deterministic_coder <- function(experiments, ...) {
@@ -374,6 +378,3 @@ deterministic_coder <- function(experiments, ...) {
 tune_protocol(ps, gold, .runner = deterministic_coder)
 audit_run(plan, .runner = deterministic_coder)
 ```
-
-`archive_replay()` supplies a runner for recomputing coding and audit results
-from stored responses.
