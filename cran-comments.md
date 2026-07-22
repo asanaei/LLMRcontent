@@ -7,7 +7,7 @@ robustness audits, and content-addressed replication archives, with an
 optional Shiny GUI.
 
 The package Imports LLMR, which is on CRAN. It Suggests LLMR.shiny (the
-family's shared GUI substrate), which is being submitted in sequence; every
+family's shared GUI substrate, on CRAN); every
 use of LLMR.shiny -- and of the other GUI packages shiny, bslib, DT, and
 ggplot2 -- is guarded with `requireNamespace()`, so the package installs,
 checks, and runs without any of them.
@@ -22,7 +22,7 @@ check step makes a network call or needs an API key.
 
 ## R CMD check results
 
-0 errors | 0 warnings | 2 notes
+0 errors | 0 warnings | 3 notes
 
 - "checking CRAN incoming feasibility ... NOTE": "New submission" (expected
   for a first submission) and "Suggests or Enhances not in mainstream
@@ -31,6 +31,9 @@ check step makes a network call or needs an API key.
   without it).
 - "checking for future file timestamps ... NOTE" ("unable to verify current
   time"): environmental; the check machine had no access to a time service.
+- "checking HTML version of manual ... NOTE": emitted by an older
+  system `tidy` that does not recognize the HTML5 elements R generates;
+  it does not reproduce on CRAN.
 
 ## Reverse dependencies
 
