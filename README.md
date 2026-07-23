@@ -86,8 +86,11 @@ offline response rows.
 
 ## Scope
 
-`quallmer` supports qualitative coding. LLMRcontent is intended for analyses
-that use model labels as variables in quantitative estimates.
+LLMRcontent is intended for analyses that use model labels as variables in
+quantitative estimates: each unit receives one label from a fixed codebook,
+and the labels feed prevalence estimates or downstream models. Exploratory
+or interpretive coding, multi-field extraction, and segmentation are outside
+its scope.
 
 ## Install
 
