@@ -104,3 +104,24 @@ remotes::install_github("asanaei/LLMRcontent")
 Coding and audit functions accept a `.runner` interface for supplying response
 rows. Live analyses use the configured provider call by default; an injected
 function supports examples and tests without making a provider call.
+
+## Related packages
+
+LLMRcontent uses [LLMR](https://asanaei.github.io/LLMR/), the common provider
+interface on CRAN. [LLMRpanel](https://asanaei.github.io/LLMRpanel/) administers
+survey and experimental instruments to panels of model personas.
+[FocusGroup](https://asanaei.github.io/FocusGroup/) runs moderated group
+discussions. [LLMRagent](https://asanaei.github.io/LLMRagent/) provides tools for
+agent experiments. The
+[ecosystem page](https://asanaei.github.io/LLMR-ecosystem/) describes the
+package boundaries.
+
+## Contributing
+
+Report bugs and feature requests in the
+[GitHub repository](https://github.com/asanaei/LLMRcontent). Pull requests may
+be submitted there.
+
+## License
+
+This project uses the MIT License; see `LICENSE`.
