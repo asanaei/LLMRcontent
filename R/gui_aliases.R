@@ -31,3 +31,26 @@ read_csv_upload          <- function(...) LLMR.shiny::read_csv_upload(...)
 read_csv_path            <- function(...) LLMR.shiny::read_csv_path(...)
 column_names_for_mapping <- function(...) LLMR.shiny::column_names_for_mapping(...)
 report_text              <- function(...) LLMR.shiny::report_text(...)
+
+# Live runs above this planned API-call count require explicit confirmation.
+.content_large_run_threshold <- 100L
+
+.content_large_run_modal <- function(ns, confirm_id, task, calls, result_label) {
+  shiny::showModal(shiny::modalDialog(
+    title = "Confirm Large Live Run",
+    shiny::tags$p(sprintf(
+      "%s will make %d planned API calls and produce %s.",
+      task, calls, result_label
+    )),
+    shiny::tags$p("Retries are excluded and may add API calls."),
+    easyClose = TRUE,
+    footer = shiny::tagList(
+      shiny::modalButton("Cancel"),
+      shiny::actionButton(
+        ns(confirm_id),
+        sprintf("Run %d Calls", calls),
+        class = "btn-primary"
+      )
+    )
+  ))
+}

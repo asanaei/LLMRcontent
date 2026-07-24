@@ -13,7 +13,7 @@ mod_coder_ui <- function(id) {
   shiny::uiOutput(ns("module_ui"))
 }
 
-mod_coder_server <- function(id, shared) {
+mod_coder_server <- function(id, shared, active = NULL) {
   shiny::moduleServer(id, function(input, output, session) {
     step <- shiny::reactiveVal(1L)
 
@@ -42,6 +42,41 @@ mod_coder_server <- function(id, shared) {
     corrected <- shiny::reactiveVal(NULL)
     run_error <- shiny::reactiveVal(NULL)
     correction_warnings <- shiny::reactiveVal(character())
+
+    warn_user <- function(message) {
+      run_error(
+        bslib::card(
+          class = "border-warning",
+          bslib::card_body(message)
+        )
+      )
+      shiny::showNotification(message, type = "warning", session = session)
+      invisible(FALSE)
+    }
+
+    add_result_usage <- function(result, fallback_calls) {
+      counts <- extract_token_counts(result, fallback_calls = fallback_calls)
+      if (identical(shared$mode(), "demo")) {
+        if (!is.null(counts$calls)) {
+          counts$result_rows <- as.integer(counts$calls)
+        }
+        counts$calls <- NULL
+        counts$sent <- 0L
+        counts$received <- 0L
+        counts$total <- 0L
+      }
+      shared$add_usage(counts)
+    }
+
+    plan_label <- function(task, calls) {
+      sprintf(
+        paste0(
+          "%s; %d expected model responses; retries excluded; ",
+          "Live runs above %d calls require confirmation"
+        ),
+        task, calls, .content_large_run_threshold
+      )
+    }
 
     output$module_ui <- shiny::renderUI({
       if (!pkg_available("LLMRcontent")) {
@@ -259,7 +294,12 @@ mod_coder_server <- function(id, shared) {
 
     output$gold_map_ui <- shiny::renderUI({
       df <- gold_raw()
-      if (is.null(df)) return(NULL)
+      if (is.null(df)) {
+        return(shiny::tags$p(
+          class = "text-muted",
+          "Upload a gold CSV or load the demo gold data to map its columns."
+        ))
+      }
 
       cols <- column_names_for_mapping(df)
       shiny::tagList(
@@ -270,7 +310,12 @@ mod_coder_server <- function(id, shared) {
 
     output$gold_preview <- DT::renderDT({
       df <- gold_raw()
-      shiny::req(df)
+      shiny::validate(
+        shiny::need(
+          !is.null(df),
+          "Upload a gold CSV or load the demo gold data to preview it."
+        )
+      )
       DT::datatable(utils::head(df, 20), options = list(scrollX = TRUE, pageLength = 5))
     })
 
@@ -285,17 +330,30 @@ mod_coder_server <- function(id, shared) {
     output$gold_status <- shiny::renderUI({
       if (is.null(gold())) return(NULL)
 
-      shiny::tagList(
-        bslib::card(
-          class = "border-warning",
-          bslib::card_body("SEALED: the test split is reserved for validation.")
-        ),
-        shiny::tags$p("Gold set created.")
+      bslib::card(
+        class = "border-info",
+        bslib::card_header("Sealed gold set"),
+        bslib::card_body(
+          "The gold set was created. The test split is reserved for validation."
+        )
       )
     })
 
     shiny::observeEvent(input$create_gold, {
-      shiny::req(gold_raw(), input$gold_text_col, input$gold_label_col)
+      if (is.null(gold_raw())) {
+        warn_user("Upload a gold CSV or load the demo gold data before creating the gold set.")
+        return()
+      }
+      text_col <- input$gold_text_col %||% ""
+      label_col <- input$gold_label_col %||% ""
+      if (!nzchar(text_col) || !text_col %in% names(gold_raw())) {
+        warn_user("Select a text column before creating the gold set.")
+        return()
+      }
+      if (!nzchar(label_col) || !label_col %in% names(gold_raw())) {
+        warn_user("Select a label column before creating the gold set.")
+        return()
+      }
       # A cleared numericInput yields NA; fall back to the default seed.
       seed <- suppressWarnings(as.integer(input$gold_seed %||% 110L))
       if (is.na(seed)) seed <- 110L
@@ -305,8 +363,8 @@ mod_coder_server <- function(id, shared) {
       res <- safe_llmr_call(
         call_gold_set_mapped(
           gold_raw(),
-          input$gold_text_col,
-          input$gold_label_col,
+          text_col,
+          label_col,
           split = split,
           stratify = isTRUE(input$stratify_gold),
           seal_holdout = TRUE
@@ -324,7 +382,10 @@ mod_coder_server <- function(id, shared) {
     })
 
     shiny::observeEvent(input$continue_gold, {
-      shiny::req(gold())
+      if (is.null(gold())) {
+        warn_user("Create the sealed gold set before continuing.")
+        return()
+      }
       step(3L)
     })
 
@@ -342,20 +403,33 @@ mod_coder_server <- function(id, shared) {
     })
 
     shiny::observeEvent(input$build_protocols, {
-      shiny::req(codebook(), gold())
+      if (is.null(codebook())) {
+        warn_user("Save a codebook before building protocols.")
+        return()
+      }
+      if (is.null(gold())) {
+        warn_user("Create the sealed gold set before building protocols.")
+        return()
+      }
 
       if (!prompt_valid()) {
-        run_error(
-          bslib::card(
-            class = "border-warning",
-            bslib::card_body("Add both {text} and {codebook} to the prompt template.")
-          )
-        )
+        warn_user("Add both {text} and {codebook} to the prompt template.")
+        return()
+      }
+
+      if (identical(shared$mode(), "live") &&
+          !nzchar(trimws(shared$model() %||% ""))) {
+        warn_user("Enter a model in the sidebar before building protocols.")
         return()
       }
 
       if (identical(shared$mode(), "live") && !shared$can_run()) {
         run_error(live_run_blocker_ui(shared$key()))
+        shiny::showNotification(
+          "Set the provider API key before building protocols.",
+          type = "warning",
+          session = session
+        )
         return()
       }
 
@@ -404,24 +478,42 @@ mod_coder_server <- function(id, shared) {
       NROW(as_display_table(out))
     })
 
-    # Tuning applies each candidate's configured replicate count.
-    shiny::observe({
-      if (identical(step(), 4L) && !is.null(protocols())) {
-        reps <- sum(vapply(protocols(), `[[`, integer(1), "replicates"))
-        shared$set_plan(reps * dev_units(), "Tuning on dev split")
+    run_tune <- function(confirmed = FALSE) {
+      if (is.null(protocols())) {
+        warn_user("Build the protocol candidates before running tuning.")
+        return()
       }
-    })
-
-    shiny::observeEvent(input$run_tune, {
-      shiny::req(protocols(), gold())
+      if (is.null(gold())) {
+        warn_user("Create the sealed gold set before running tuning.")
+        return()
+      }
 
       if (identical(shared$mode(), "live") && !shared$can_run()) {
         run_error(live_run_blocker_ui(shared$key()))
+        shiny::showNotification(
+          "Set the provider API key before running tuning.",
+          type = "warning",
+          session = session
+        )
         return()
       }
 
       reps <- sum(vapply(protocols(), `[[`, integer(1), "replicates"))
       planned <- reps * dev_units()
+      if (identical(shared$mode(), "live")) {
+        shared$set_plan(planned, plan_label("Tuning", planned))
+        if (!isTRUE(confirmed) &&
+            planned > .content_large_run_threshold) {
+          .content_large_run_modal(
+            session$ns,
+            "confirm_tune",
+            "Protocol tuning",
+            planned,
+            sprintf("%d expected model responses", planned)
+          )
+          return()
+        }
+      }
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
 
       res <- safe_llmr_call(
@@ -446,16 +538,26 @@ mod_coder_server <- function(id, shared) {
 
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
       tuning(out)
-      shared$add_usage(extract_token_counts(
-        tibble::as_tibble(out), fallback_calls = planned))
+      add_result_usage(tibble::as_tibble(out), fallback_calls = planned)
       run_error(NULL)
+    }
+
+    shiny::observeEvent(input$run_tune, {
+      run_tune()
+    })
+
+    shiny::observeEvent(input$confirm_tune, {
+      shiny::removeModal()
+      run_tune(confirmed = TRUE)
     })
 
     output$tune_table <- DT::renderDT({
-      shiny::req(tuning())
+      shiny::validate(
+        shiny::need(!is.null(tuning()), "Run tuning to compare the protocol candidates.")
+      )
       DT::datatable(
         as_display_table(tibble::as_tibble(tuning())),
-        caption = "dev-split, optimistic",
+        caption = "Development-split performance used for protocol tuning",
         options = list(scrollX = TRUE, pageLength = 5)
       )
     })
@@ -471,12 +573,27 @@ mod_coder_server <- function(id, shared) {
     })
 
     shiny::observeEvent(input$continue_tune, {
-      shiny::req(tuning(), input$winner_protocol)
+      if (is.null(tuning())) {
+        warn_user("Run tuning before continuing to protocol lock.")
+        return()
+      }
+      if (is.null(input$winner_protocol) || !nzchar(input$winner_protocol)) {
+        warn_user("Select a protocol before continuing.")
+        return()
+      }
       step(5L)
     })
 
     shiny::observeEvent(input$lock_protocol, {
-      shiny::req(protocols(), input$winner_protocol)
+      if (is.null(protocols())) {
+        warn_user("Build protocol candidates before locking one.")
+        return()
+      }
+      if (is.null(input$winner_protocol) ||
+          !input$winner_protocol %in% names(protocols())) {
+        warn_user("Select a protocol before locking it.")
+        return()
+      }
       selected <- protocols()[[input$winner_protocol]]
       res <- safe_llmr_call(LLMRcontent::protocol_lock(selected), shared$provider())
 
@@ -501,33 +618,46 @@ mod_coder_server <- function(id, shared) {
       DT::datatable(as_display_table(ledger), options = list(scrollX = TRUE, pageLength = 5))
     })
 
-    # Validation applies the locked protocol's configured replicate count.
-    shiny::observe({
-      if (identical(step(), 5L) && !is.null(locked_protocol())) {
-        reps <- locked_protocol()$replicates
-        shared$set_plan(reps * test_units(), "Validation on sealed test split")
+    run_validate <- function(confirmed = FALSE) {
+      if (is.null(locked_protocol())) {
+        warn_user("Lock a protocol before validating it.")
+        return()
       }
-    })
-
-    shiny::observeEvent(input$run_validate, {
-      shiny::req(locked_protocol(), gold())
+      if (is.null(gold())) {
+        warn_user("Create the sealed gold set before validating the protocol.")
+        return()
+      }
 
       if (!isTRUE(input$confirm_ledger)) {
-        run_error(
-          bslib::card(
-            class = "border-warning",
-            bslib::card_body("Confirm that validation is ledgered before running.")
-          )
-        )
+        warn_user("Confirm that validation is ledgered before running.")
         return()
       }
 
       if (identical(shared$mode(), "live") && !shared$can_run()) {
         run_error(live_run_blocker_ui(shared$key()))
+        shiny::showNotification(
+          "Set the provider API key before validating the protocol.",
+          type = "warning",
+          session = session
+        )
         return()
       }
 
       planned <- locked_protocol()$replicates * test_units()
+      if (identical(shared$mode(), "live")) {
+        shared$set_plan(planned, plan_label("Validation", planned))
+        if (!isTRUE(confirmed) &&
+            planned > .content_large_run_threshold) {
+          .content_large_run_modal(
+            session$ns,
+            "confirm_validate",
+            "Protocol validation",
+            planned,
+            sprintf("%d expected model responses", planned)
+          )
+          return()
+        }
+      }
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
 
       res <- safe_llmr_call(
@@ -552,12 +682,26 @@ mod_coder_server <- function(id, shared) {
 
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
       validation(out)
-      shared$add_usage(extract_token_counts(out, fallback_calls = planned))
+      add_result_usage(out, fallback_calls = planned)
       run_error(NULL)
+    }
+
+    shiny::observeEvent(input$run_validate, {
+      run_validate()
+    })
+
+    shiny::observeEvent(input$confirm_validate, {
+      shiny::removeModal()
+      run_validate(confirmed = TRUE)
     })
 
     output$validation_table <- DT::renderDT({
-      shiny::req(validation())
+      shiny::validate(
+        shiny::need(
+          !is.null(validation()),
+          "Validate the locked protocol to see validation results."
+        )
+      )
       DT::datatable(as_display_table(validation()), options = list(scrollX = TRUE, pageLength = 5))
     })
 
@@ -569,13 +713,27 @@ mod_coder_server <- function(id, shared) {
       )
 
       ggplot2::ggplot(df, ggplot2::aes(x = split, y = units)) +
-        ggplot2::geom_col(fill = "#2C7FB8") +
-        ggplot2::labs(x = NULL, y = "Gold units") +
+        ggplot2::geom_col(fill = "#6C757D") +
+        ggplot2::scale_x_discrete(
+          labels = c(dev = "Development", test = "Test")
+        ) +
+        ggplot2::labs(
+          title = "Gold-unit counts by split",
+          x = "Gold split",
+          y = "Number of gold units",
+          caption = paste(
+            "Bar heights compare development and test gold-unit counts.",
+            "They do not show validation accuracy."
+          )
+        ) +
         ggplot2::theme_minimal()
     })
 
     shiny::observeEvent(input$continue_validate, {
-      shiny::req(validation())
+      if (is.null(validation())) {
+        warn_user("Validate the locked protocol before continuing to corpus coding.")
+        return()
+      }
       step(6L)
     })
 
@@ -597,34 +755,114 @@ mod_coder_server <- function(id, shared) {
 
     output$corpus_map_ui <- shiny::renderUI({
       df <- corpus_raw()
-      if (is.null(df)) return(NULL)
+      if (is.null(df)) {
+        return(shiny::tags$p(
+          class = "text-muted",
+          "Upload a corpus CSV or load the demo corpus to select its text column."
+        ))
+      }
 
       cols <- column_names_for_mapping(df)
       shiny::selectInput(session$ns("corpus_text_col"), "Text column", choices = cols, selected = cols[[1]])
     })
 
     output$corpus_preview <- DT::renderDT({
-      shiny::req(corpus_raw())
+      shiny::validate(
+        shiny::need(
+          !is.null(corpus_raw()),
+          "Upload a corpus CSV or load the demo corpus to preview it."
+        )
+      )
       DT::datatable(utils::head(corpus_raw(), 20), options = list(scrollX = TRUE, pageLength = 5))
     })
 
     shiny::observe({
-      if (identical(step(), 6L) && !is.null(corpus_raw())) {
-        reps <- as.integer((locked_protocol() %||% list())$replicates %||% 1L)
-        shared$set_plan(NROW(corpus_raw()) * reps, "Coding corpus")
+      if (!is.null(active) && !identical(active(), "coder")) return()
+      if (!identical(shared$mode(), "live")) {
+        shared$set_plan(0L)
+        return()
       }
+
+      estimate <- switch(
+        as.character(step()),
+        "4" = {
+          if (is.null(protocols())) {
+            list(calls = 0L, task = "Tuning")
+          } else {
+            reps <- sum(vapply(protocols(), `[[`, integer(1), "replicates"))
+            list(calls = reps * dev_units(), task = "Tuning")
+          }
+        },
+        "5" = {
+          if (is.null(locked_protocol())) {
+            list(calls = 0L, task = "Validation")
+          } else {
+            list(
+              calls = locked_protocol()$replicates * test_units(),
+              task = "Validation"
+            )
+          }
+        },
+        "6" = {
+          if (is.null(corpus_raw()) || is.null(locked_protocol())) {
+            list(calls = 0L, task = "Corpus coding")
+          } else {
+            list(
+              calls = NROW(corpus_raw()) * locked_protocol()$replicates,
+              task = "Corpus coding"
+            )
+          }
+        },
+        list(calls = 0L, task = "Next run")
+      )
+      calls <- as.integer(estimate$calls)
+      shared$set_plan(
+        calls,
+        plan_label(estimate$task, calls)
+      )
     })
 
-    shiny::observeEvent(input$run_code_corpus, {
-      shiny::req(locked_protocol(), corpus_raw(), input$corpus_text_col)
+    run_code_corpus <- function(confirmed = FALSE) {
+      if (is.null(locked_protocol())) {
+        warn_user("Lock and validate a protocol before coding the corpus.")
+        return()
+      }
+      if (is.null(corpus_raw())) {
+        warn_user("Upload a corpus CSV or load the demo corpus before coding.")
+        return()
+      }
+      text_col <- input$corpus_text_col %||% ""
+      if (!nzchar(text_col) || !text_col %in% names(corpus_raw())) {
+        warn_user("Select a text column before coding the corpus.")
+        return()
+      }
 
       if (identical(shared$mode(), "live") && !shared$can_run()) {
         run_error(live_run_blocker_ui(shared$key()))
+        shiny::showNotification(
+          "Set the provider API key before coding the corpus.",
+          type = "warning",
+          session = session
+        )
         return()
       }
 
       reps <- as.integer((locked_protocol() %||% list())$replicates %||% 1L)
       planned <- NROW(corpus_raw()) * reps
+      if (identical(shared$mode(), "live")) {
+        shared$set_plan(planned, plan_label("Corpus coding", planned))
+        if (!isTRUE(confirmed) &&
+            planned > .content_large_run_threshold) {
+          .content_large_run_modal(
+            session$ns,
+            "confirm_code_corpus",
+            "Corpus coding",
+            planned,
+            sprintf("%d expected model responses", planned)
+          )
+          return()
+        }
+      }
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
 
       res <- safe_llmr_call(
@@ -632,7 +870,7 @@ mod_coder_server <- function(id, shared) {
           shiny::incProgress(0.2)
           out <- call_code_corpus_mapped(
             corpus = corpus_raw(),
-            text_col = input$corpus_text_col,
+            text_col = text_col,
             protocol = locked_protocol(),
             .runner = runner
           )
@@ -649,7 +887,7 @@ mod_coder_server <- function(id, shared) {
 
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
       coded(out)
-      shared$add_usage(extract_token_counts(out, fallback_calls = planned))
+      add_result_usage(out, fallback_calls = planned)
 
       warns <- character()
       corr <- tryCatch(
@@ -672,16 +910,32 @@ mod_coder_server <- function(id, shared) {
       # gold_correction summary (the prevalence table). Keep them separate.
       corrected(corr)
       run_error(NULL)
+    }
+
+    shiny::observeEvent(input$run_code_corpus, {
+      run_code_corpus()
+    })
+
+    shiny::observeEvent(input$confirm_code_corpus, {
+      shiny::removeModal()
+      run_code_corpus(confirmed = TRUE)
     })
 
     output$coded_preview <- DT::renderDT({
-      shiny::req(coded())
+      shiny::validate(
+        shiny::need(!is.null(coded()), "Code the corpus to preview coded rows.")
+      )
       DT::datatable(as_display_table(tibble::as_tibble(coded())),
                     options = list(scrollX = TRUE, pageLength = 5))
     })
 
     output$correction_table <- DT::renderDT({
-      shiny::req(corrected())
+      shiny::validate(
+        shiny::need(
+          !is.null(corrected()),
+          "Code the corpus to estimate gold-corrected category prevalences."
+        )
+      )
       DT::datatable(
         as_display_table(tibble::as_tibble(corrected())),
         caption = "Gold-corrected category prevalences",
@@ -701,7 +955,10 @@ mod_coder_server <- function(id, shared) {
     })
 
     shiny::observeEvent(input$continue_corpus, {
-      shiny::req(coded())
+      if (is.null(coded())) {
+        warn_user("Code the corpus before continuing to downloads.")
+        return()
+      }
       step(7L)
     })
 
@@ -785,10 +1042,26 @@ coder_config_ui <- function(ns, shared) {
   } else {
     NULL
   }
+  config_summary <- if (identical(shared$mode(), "demo")) {
+    shiny::tags$p(
+      class = "text-muted",
+      "Bundled deterministic demo. No model, API key, or API calls."
+    )
+  } else {
+    shiny::tags$dl(
+      class = "row",
+      shiny::tags$dt(class = "col-sm-2", "Provider"),
+      shiny::tags$dd(class = "col-sm-10", shared$provider()),
+      shiny::tags$dt(class = "col-sm-2", "Model"),
+      shiny::tags$dd(class = "col-sm-10", shared$model()),
+      shiny::tags$dt(class = "col-sm-2", "Mode"),
+      shiny::tags$dd(class = "col-sm-10", "Live")
+    )
+  }
 
   shiny::tagList(
     key_ui,
-    shiny::tags$p(paste0("Provider: ", shared$provider(), " | Model: ", shared$model(), " | Mode: ", shared$mode())),
+    config_summary,
     shiny::textAreaInput(
       ns("prompt_template"),
       "Prompt template",
@@ -853,7 +1126,7 @@ coder_validate_ui <- function(ns, shared, locked, validation) {
     shiny::checkboxInput(ns("confirm_ledger"), "Validation is ledgered against the sealed test split", value = FALSE),
     shiny::actionButton(ns("run_validate"), "Validate locked protocol", class = "btn-primary", disabled = disabled),
     DT::DTOutput(ns("validation_table")),
-    shiny::plotOutput(ns("validation_plot"), height = 240),
+    shiny::plotOutput(ns("validation_plot"), height = 300),
     shiny::tags$h4("Gold ledger"),
     DT::DTOutput(ns("ledger_table")),
     shiny::actionButton(ns("continue_validate"), "Continue to corpus coding", class = "btn-primary")

@@ -2,7 +2,7 @@
 # An optional Shiny GUI for LLMRcontent, launched with run_content_studio(). It
 # fronts the three LLMRcontent workflows -- coding, robustness audit, and archive
 # -- as tabs over the shared LLMR.shiny substrate (provider/model sidebar, key
-# and cost tiles, offline demo mode).
+# and usage tiles, offline demo mode).
 #
 # shiny, bslib, DT, ggplot2, and LLMR.shiny are Suggests, not Imports: a non-GUI user
 # installs none of them and the analysis package stays lean. Every call into

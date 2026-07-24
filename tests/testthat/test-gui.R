@@ -73,6 +73,52 @@ test_that("the GUI assembles when its suggested packages are present", {
   expect_true(is.function(LLMRcontent:::.content_gui_server))
 })
 
+test_that("the demo audit records result rows without API calls", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("LLMR.shiny")
+  usage_seen <- new.env(parent = emptyenv())
+  usage_seen$value <- NULL
+  usage_seen$plans <- integer()
+  shared <- list(
+    mode = shiny::reactive("demo"),
+    provider = shiny::reactive("groq"),
+    model = shiny::reactive(""),
+    can_run = shiny::reactive(TRUE),
+    key = shiny::reactive(list()),
+    set_plan = function(calls, label = "Next run") {
+      usage_seen$plans <- c(usage_seen$plans, as.integer(calls))
+    },
+    add_usage = function(tokens) usage_seen$value <- tokens
+  )
+
+  shiny::testServer(
+    LLMRcontent:::mod_valid_server,
+    args = list(shared = shared, active = shiny::reactive("valid")),
+    {
+      session$setInputs(
+        labels = "conservative, progressive",
+        estimand = "share",
+        target = "conservative",
+        prompt = "Classify as {labels}.\n\n{text}\n\nLabel:",
+        orders = c("as_given", "reversed"),
+        temps = "0, 0.7",
+        add_paraphrase = TRUE,
+        load_demo = 1
+      )
+      session$flushReact()
+      session$setInputs(text_col = "text", run_audit = 1)
+      session$flushReact()
+      expect_s3_class(audit(), "audit")
+      expect_true(LLMR.shiny::is_demo_result(audit()))
+    }
+  )
+
+  expect_identical(usage_seen$value$result_rows, 48L)
+  expect_null(usage_seen$value$calls)
+  expect_false(any(usage_seen$plans > 0L))
+})
+
 test_that(".content_gui_require gives ordinary installation instructions", {
   testthat::local_mocked_bindings(
     requireNamespace = function(package, ...) FALSE,

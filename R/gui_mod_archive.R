@@ -40,6 +40,12 @@ mod_archive_server <- function(id, shared) {
     sealed    <- shiny::reactiveVal(NULL)
     run_error <- shiny::reactiveVal(NULL)
 
+    warn_user <- function(message) {
+      run_error(.arch_warn(message))
+      shiny::showNotification(message, type = "warning", session = session)
+      invisible(FALSE)
+    }
+
     output$module_ui <- shiny::renderUI({
       if (!pkg_available("LLMRcontent")) return(install_guidance_ui("LLMRcontent"))
       # archive_build() reads the log through LLMR::llm_log_read(); preflight LLMR
@@ -49,9 +55,19 @@ mod_archive_server <- function(id, shared) {
         bslib::card_header("Verifiable replication archive"),
         bslib::card_body(
           shiny::uiOutput(ns("run_error")),
+          shiny::tags$p(
+            paste(
+              "Choose an LLM audit log or use the bundled demo log.",
+              "Building the archive reads recorded calls and does not make API calls."
+            )
+          ),
           shiny::fluidRow(
-            shiny::column(6, shiny::fileInput(ns("log_file"), "LLMR audit log (.jsonl)", accept = ".jsonl")),
+            shiny::column(6, shiny::fileInput(ns("log_file"), "LLM Audit Log", accept = ".jsonl")),
             shiny::column(6, shiny::actionButton(ns("load_demo"), "Use demo log"))
+          ),
+          shiny::tags$p(
+            class = "form-text",
+            "The audit log is a JSON Lines (.jsonl) file recorded by LLMR."
           ),
           shiny::actionButton(ns("build"), "Build archive", class = "btn-primary"),
           shiny::tags$hr(),
@@ -67,8 +83,19 @@ mod_archive_server <- function(id, shared) {
 
     shiny::observeEvent(input$build, {
       run_error(NULL)
-      if (is.null(log_path())) { run_error(.arch_warn("Choose a log file or use the demo log.")); return() }
-      res <- safe_llmr_call(LLMRcontent::archive_build(log_path()), shared$provider())
+      if (is.null(log_path())) {
+        warn_user("Choose a log file or use the demo log before building the archive.")
+        return()
+      }
+      res <- safe_llmr_call(
+        shiny::withProgress(message = "Building archive", value = 0, {
+          shiny::setProgress(value = 0, detail = "Reading the audit log")
+          out <- LLMRcontent::archive_build(log_path())
+          shiny::incProgress(1, detail = "Archive built")
+          out
+        }),
+        shared$provider()
+      )
       if (!res$ok) { run_error(res$ui); return() }
       archive(res$value); sealed(NULL)
     })
@@ -81,7 +108,12 @@ mod_archive_server <- function(id, shared) {
     })
 
     output$results <- shiny::renderUI({
-      if (is.null(archive())) return(NULL)
+      shiny::validate(
+        shiny::need(
+          !is.null(archive()),
+          "Choose a log file or use the demo log, then build the archive."
+        )
+      )
       shiny::tagList(
         shiny::verbatimTextOutput(ns("summary")),
         shiny::actionButton(ns("seal"), "Seal archive", class = "btn-primary"),
