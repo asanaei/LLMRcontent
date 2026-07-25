@@ -31,6 +31,9 @@ read_csv_upload          <- function(...) LLMR.shiny::read_csv_upload(...)
 read_csv_path            <- function(...) LLMR.shiny::read_csv_path(...)
 column_names_for_mapping <- function(...) LLMR.shiny::column_names_for_mapping(...)
 report_text              <- function(...) LLMR.shiny::report_text(...)
+diagnostics_table         <- function(...) LLMR.shiny::diagnostics_table(...)
+text_block_output         <- function(...) LLMR.shiny::text_block_output(...)
+help_tip                  <- function(...) LLMR.shiny::help_tip(...)
 
 # Live runs above this planned API-call count require explicit confirmation.
 .content_large_run_threshold <- 100L

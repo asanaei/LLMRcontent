@@ -4,10 +4,10 @@
 # -- as tabs over the shared LLMR.shiny substrate (provider/model sidebar, key
 # and usage tiles, offline demo mode).
 #
-# shiny, bslib, DT, ggplot2, and LLMR.shiny are Suggests, not Imports: a non-GUI user
-# installs none of them and the analysis package stays lean. Every call into
-# those packages is fully qualified (or forwarded through the lazy helpers in
-# gui_aliases.R), and the launcher guards on all four.
+# shiny, bslib, DT, ggplot2, and LLMR.shiny are Suggests, not Imports: a non-GUI
+# user installs none of them and the analysis package stays lean. The launcher
+# guards the four required GUI packages, while figure outputs guard ggplot2 at
+# the point of use.
 
 #' Launch the LLMRcontent Shiny GUI
 #'
@@ -18,9 +18,10 @@
 #' reimplementing it: the package defines behavior, the GUI defines
 #' presentation.
 #'
-#' The GUI is optional. It needs the suggested packages shiny, bslib, DT,
-#' ggplot2, and LLMR.shiny. Install them with
-#' `install.packages(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))`.
+#' The GUI is optional. It needs the suggested packages shiny, bslib, DT, and
+#' LLMR.shiny. Install them with
+#' `install.packages(c("shiny", "bslib", "DT", "LLMR.shiny"))`.
+#' Install ggplot2 to draw the optional figures.
 #' Live runs read provider API keys from environment variables only, never
 #' pasted into the app; a deterministic demo mode runs offline.
 #'
@@ -29,7 +30,7 @@
 #'   of starting the app.
 #' @examples
 #' if (interactive() &&
-#'     all(vapply(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"),
+#'     all(vapply(c("shiny", "bslib", "DT", "LLMR.shiny"),
 #'                requireNamespace, logical(1), quietly = TRUE))) {
 #'   run_content_studio()
 #' }
@@ -41,7 +42,7 @@ run_content_studio <- function(...) {
 }
 
 .content_gui_require <- function() {
-  need <- c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny")
+  need <- c("shiny", "bslib", "DT", "LLMR.shiny")
   missing <- need[!vapply(need, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing)) {
     stop("The LLMRcontent GUI needs these packages: ",

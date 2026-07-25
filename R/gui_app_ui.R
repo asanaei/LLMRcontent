@@ -9,7 +9,7 @@
     title = "LLMRcontent",
     id = "main_nav",
     selected = "home",
-    fillable = TRUE,
+    fillable = FALSE,
     theme = LLMR.shiny::llmr_theme("content"),
     sidebar = LLMR.shiny::shell_sidebar(),
     bslib::nav_panel(

@@ -32,13 +32,27 @@ mod_archive_ui <- function(id) {
   shiny::uiOutput(ns("module_ui"))
 }
 
-mod_archive_server <- function(id, shared) {
+mod_archive_server <- function(id, shared, artifacts = NULL,
+                               coded = NULL, coded_calls = NULL) {
   shiny::moduleServer(id, function(input, output, session) {
+    if (is.null(artifacts)) {
+      artifacts <- shiny::reactiveValues(
+        coded = NULL,
+        coded_calls = NULL,
+        archive = NULL
+      )
+    }
+    if (is.null(coded)) coded <- shiny::reactive(artifacts$coded)
+    if (is.null(coded_calls)) {
+      coded_calls <- shiny::reactive(artifacts$coded_calls)
+    }
     ns <- session$ns
-    log_path  <- shiny::reactiveVal(NULL)
-    archive   <- shiny::reactiveVal(NULL)
-    sealed    <- shiny::reactiveVal(NULL)
-    run_error <- shiny::reactiveVal(NULL)
+    log_path       <- shiny::reactiveVal(NULL)
+    uploaded_calls <- shiny::reactiveVal(NULL)
+    archive        <- shiny::reactiveVal(NULL)
+    sealed         <- shiny::reactiveVal(NULL)
+    redacted       <- shiny::reactiveVal(NULL)
+    run_error      <- shiny::reactiveVal(NULL)
 
     warn_user <- function(message) {
       run_error(.arch_warn(message))
@@ -46,15 +60,70 @@ mod_archive_server <- function(id, shared) {
       invisible(FALSE)
     }
 
+    current_archive <- shiny::reactive({
+      redacted() %||% sealed() %||% archive()
+    })
+
+    reset_archive <- function(path) {
+      log_path(path)
+      archive(NULL)
+      sealed(NULL)
+      redacted(NULL)
+      artifacts$archive <- NULL
+    }
+
+    carried_results <- shiny::reactive({
+      calls <- coded_calls()
+      if (is.data.frame(calls) && "response_id" %in% names(calls)) {
+        return(calls)
+      }
+      value <- coded()
+      if (is.null(value)) return(NULL)
+      data <- tryCatch(
+        as.data.frame(tibble::as_tibble(value)),
+        error = function(e) NULL
+      )
+      if (is.data.frame(data) && "response_id" %in% names(data)) data else NULL
+    })
+
+    check_results <- shiny::reactive({
+      if (isTRUE(input$use_coded_calls) && !is.null(carried_results())) {
+        return(carried_results())
+      }
+      uploaded_calls()
+    })
+
+    check_result <- shiny::reactive({
+      value <- current_archive()
+      if (is.null(value)) return(NULL)
+      tryCatch(
+        LLMRcontent::archive_check(value, results = check_results()),
+        error = function(e) e
+      )
+    })
+
+    horizon_result <- shiny::reactive({
+      value <- current_archive()
+      if (is.null(value)) return(NULL)
+      tryCatch(verifiability_horizon(value), error = function(e) e)
+    })
+
+    replay_result <- shiny::reactive({
+      value <- current_archive()
+      if (is.null(value)) return(NULL)
+      tryCatch(LLMRcontent::archive_replay(value), error = function(e) e)
+    })
+
     output$module_ui <- shiny::renderUI({
       if (!pkg_available("LLMRcontent")) return(install_guidance_ui("LLMRcontent"))
       # archive_build() reads the log through LLMR::llm_log_read(); preflight LLMR
       # too so a missing core shows guidance instead of crashing on use.
       if (!pkg_available("LLMR")) return(install_guidance_ui("LLMR"))
       bslib::card(
-        bslib::card_header("Verifiable replication archive"),
+        bslib::card_header("Archive"),
         bslib::card_body(
           shiny::uiOutput(ns("run_error")),
+          shiny::tags$h4("Verifiable replication archive"),
           shiny::tags$p(
             paste(
               "Choose an LLM audit log or use the bundled demo log.",
@@ -69,6 +138,22 @@ mod_archive_server <- function(id, shared) {
             class = "form-text",
             "The audit log is a JSON Lines (.jsonl) file recorded by LLMR."
           ),
+          shiny::fluidRow(
+            shiny::column(
+              6,
+              shiny::fileInput(
+                ns("results_file"),
+                "Optional results CSV",
+                accept = ".csv",
+                placeholder = "CSV containing response_id"
+              )
+            ),
+            shiny::column(6, shiny::uiOutput(ns("carry_ui")))
+          ),
+          shiny::tags$p(
+            class = "form-text",
+            "A results CSV must contain response_id for completeness checking."
+          ),
           shiny::actionButton(ns("build"), "Build archive", class = "btn-primary"),
           shiny::tags$hr(),
           shiny::uiOutput(ns("results"))
@@ -78,8 +163,50 @@ mod_archive_server <- function(id, shared) {
 
     output$run_error <- shiny::renderUI(run_error())
 
-    shiny::observeEvent(input$log_file, { log_path(input$log_file$datapath); archive(NULL); sealed(NULL) })
-    shiny::observeEvent(input$load_demo, { log_path(archive_demo_log()); archive(NULL); sealed(NULL) })
+    output$carry_ui <- shiny::renderUI({
+      if (!is.null(carried_results())) {
+        return(shiny::checkboxInput(
+          ns("use_coded_calls"),
+          "Use call records from the coded corpus held in Coding",
+          value = TRUE
+        ))
+      }
+      if (is.null(coded())) return(NULL)
+      bslib::card(
+        class = "border-info",
+        bslib::card_body(
+          paste(
+            "A coded corpus is held in Coding, but no associated response_id",
+            "records are available for a completeness check."
+          )
+        )
+      )
+    })
+
+    shiny::observeEvent(input$log_file, {
+      reset_archive(input$log_file$datapath)
+    })
+    shiny::observeEvent(input$load_demo, {
+      reset_archive(archive_demo_log())
+    })
+
+    shiny::observeEvent(input$results_file, {
+      result <- tryCatch(
+        read_csv_upload(input$results_file),
+        error = function(e) {
+          warn_user(paste("Could not read the results CSV:", conditionMessage(e)))
+          NULL
+        }
+      )
+      if (is.null(result)) return()
+      if (!"response_id" %in% names(result)) {
+        uploaded_calls(NULL)
+        warn_user("The results CSV must contain a response_id column.")
+        return()
+      }
+      uploaded_calls(result)
+      run_error(NULL)
+    })
 
     shiny::observeEvent(input$build, {
       run_error(NULL)
@@ -97,14 +224,33 @@ mod_archive_server <- function(id, shared) {
         shared$provider()
       )
       if (!res$ok) { run_error(res$ui); return() }
-      archive(res$value); sealed(NULL)
+      archive(res$value)
+      sealed(NULL)
+      redacted(NULL)
+      artifacts$archive <- res$value
     })
 
     shiny::observeEvent(input$seal, {
-      shiny::req(archive())
-      res <- safe_llmr_call(LLMRcontent::archive_seal(archive()), shared$provider())
+      shiny::req(current_archive())
+      res <- safe_llmr_call(
+        LLMRcontent::archive_seal(current_archive()),
+        shared$provider()
+      )
       if (!res$ok) { run_error(res$ui); return() }
       sealed(res$value)
+      redacted(NULL)
+      artifacts$archive <- res$value
+    })
+
+    shiny::observeEvent(input$redact, {
+      shiny::req(current_archive())
+      res <- safe_llmr_call(
+        LLMRcontent::archive_redact(current_archive()),
+        shared$provider()
+      )
+      if (!res$ok) { run_error(res$ui); return() }
+      redacted(res$value)
+      artifacts$archive <- res$value
     })
 
     output$results <- shiny::renderUI({
@@ -115,54 +261,261 @@ mod_archive_server <- function(id, shared) {
         )
       )
       shiny::tagList(
-        shiny::verbatimTextOutput(ns("summary")),
-        shiny::actionButton(ns("seal"), "Seal archive", class = "btn-primary"),
-        shiny::uiOutput(ns("seal_status")),
+        shiny::uiOutput(ns("archive_status")),
+        DT::DTOutput(ns("diagnostics")),
+        shiny::uiOutput(ns("archive_actions")),
         shiny::tags$h5("Manifest"),
         DT::DTOutput(ns("manifest")),
         shiny::tags$h5("Integrity check"),
-        shiny::verbatimTextOutput(ns("check")),
+        shiny::uiOutput(ns("check_status")),
+        DT::DTOutput(ns("check_table")),
         shiny::tags$h5("Verifiability horizon"),
-        shiny::verbatimTextOutput(ns("horizon")),
+        DT::DTOutput(ns("horizon_table")),
         shiny::tags$h5("Offline replay"),
-        shiny::verbatimTextOutput(ns("replay"))
+        shiny::uiOutput(ns("replay_status")),
+        shiny::uiOutput(ns("archive_timing_ui")),
+        shiny::tags$h5("Archive report"),
+        text_block_output(ns("report"), height = "20rem"),
+        bslib::accordion(
+          bslib::accordion_panel(
+            "Technical details",
+            shiny::tags$h5("Archive console summary"),
+            text_block_output(ns("summary"), height = "10rem"),
+            shiny::tags$h5("Integrity console summary"),
+            text_block_output(ns("check"), height = "10rem"),
+            shiny::tags$h5("Horizon console summary"),
+            text_block_output(ns("horizon"), height = "12rem"),
+            shiny::tags$h5("Replay console summary"),
+            text_block_output(ns("replay"), height = "10rem")
+          ),
+          open = FALSE
+        )
       )
     })
 
-    output$summary <- shiny::renderPrint({ shiny::req(archive()); print(archive()) })
+    output$archive_status <- shiny::renderUI({
+      value <- current_archive()
+      if (is.null(value)) return(NULL)
+      state <- if (isTRUE(value$redacted)) {
+        "SEALED and REDACTED"
+      } else if (isTRUE(value$sealed)) {
+        "SEALED"
+      } else {
+        "UNSEALED"
+      }
+      shiny::tags$p(
+        class = "fw-semibold",
+        sprintf(
+          "%s archive with %d recorded calls.",
+          state,
+          nrow(value$manifest)
+        )
+      )
+    })
 
-    output$seal_status <- shiny::renderUI({
-      if (is.null(sealed())) return(NULL)
-      shiny::tags$p(class = "text-success", "Sealed under a root hash.")
+    output$diagnostics <- DT::renderDT({
+      value <- current_archive()
+      shiny::req(value)
+      DT::datatable(
+        as_display_table(diagnostics_table(value)),
+        caption = "Archive diagnostics",
+        rownames = FALSE,
+        options = list(scrollX = TRUE, dom = "t")
+      )
+    })
+
+    output$archive_actions <- shiny::renderUI({
+      value <- current_archive()
+      if (is.null(value)) return(NULL)
+      shiny::tags$div(
+        class = "d-flex flex-wrap align-items-center gap-2 mb-3",
+        if (!isTRUE(value$sealed)) {
+          shiny::actionButton(ns("seal"), "Seal archive", class = "btn-primary")
+        },
+        if (!isTRUE(value$sealed)) {
+          help_tip(
+            "Sealing binds the ordered records and environment metadata to one root hash."
+          )
+        },
+        if (isTRUE(value$sealed) && !isTRUE(value$redacted)) {
+          shiny::actionButton(
+            ns("redact"), "Redact content", class = "btn-outline-secondary"
+          )
+        },
+        if (isTRUE(value$sealed) && !isTRUE(value$redacted)) {
+          help_tip(
+            "Redaction removes request and response text while retaining a verifiable public hash tree."
+          )
+        },
+        if (isTRUE(value$sealed)) {
+          shiny::tags$span(
+            class = "text-success",
+            "Sealed under a root hash."
+          )
+        }
+      )
     })
 
     output$manifest <- DT::renderDT({
-      shiny::req(archive())
-      DT::datatable(as_display_table(archive()$manifest),
+      shiny::req(current_archive())
+      DT::datatable(as_display_table(current_archive()$manifest),
                     options = list(scrollX = TRUE, pageLength = 5))
     })
 
-    # Archive inspection prints; a malformed archive shows the error in the
-    # panel rather than crashing the output.
-    safe_print <- function(expr) {
-      tryCatch(print(expr),
-               error = function(e) cat("Could not compute:", conditionMessage(e), "\n"))
-    }
+    output$check_status <- shiny::renderUI({
+      result <- check_result()
+      if (is.null(result)) return(NULL)
+      if (inherits(result, "error")) {
+        return(.arch_warn(paste("Could not check the archive:", conditionMessage(result))))
+      }
+      completeness <- if (!is.na(result$n_results)) {
+        sprintf(
+          " Completeness: %d of %d result rows matched.",
+          result$n_matched,
+          result$n_results
+        )
+      } else {
+        " No results were supplied for completeness checking."
+      }
+      shiny::tags$p(
+        class = if (isTRUE(result$intact)) "text-success" else "text-danger",
+        paste0(
+          if (isTRUE(result$intact)) {
+            "Archive integrity is intact."
+          } else {
+            "Archive integrity is broken."
+          },
+          completeness
+        )
+      )
+    })
+
+    output$check_table <- DT::renderDT({
+      result <- check_result()
+      shiny::req(result, !inherits(result, "error"))
+      table <- data.frame(
+        records = result$n_records,
+        records_ok = result$records_ok,
+        root_ok = result$root_ok,
+        public_root_ok = result$public_root_ok,
+        intact = result$intact,
+        results = result$n_results,
+        matched = result$n_matched,
+        stringsAsFactors = FALSE
+      )
+      DT::datatable(table, rownames = FALSE, options = list(dom = "t"))
+    })
+
+    output$horizon_table <- DT::renderDT({
+      result <- horizon_result()
+      shiny::req(result, !inherits(result, "error"))
+      DT::datatable(
+        as_display_table(result),
+        rownames = FALSE,
+        options = list(scrollX = TRUE, dom = "t")
+      )
+    })
+
+    output$replay_status <- shiny::renderUI({
+      result <- replay_result()
+      if (is.null(result)) return(NULL)
+      if (inherits(result, "error")) {
+        return(shiny::tags$p(
+          class = "text-body-secondary",
+          paste("Offline replay unavailable:", conditionMessage(result))
+        ))
+      }
+      shiny::tags$p(
+        class = "text-success",
+        sprintf(
+          "Offline replay is available for %d records over %d distinct requests.",
+          attr(result, "n_replayable") %||% 0L,
+          attr(result, "n_keys") %||% 0L
+        )
+      )
+    })
+
+    output$archive_timing_ui <- shiny::renderUI({
+      timing <- archive_timing(current_archive())
+      if (is.null(timing)) return(NULL)
+      shiny::tagList(
+        shiny::tags$p(
+          class = "text-body-secondary",
+          sprintf(
+            paste0(
+              "Recorded call time %.2f seconds across %d calls; ",
+              "median %.2f seconds per call."
+            ),
+            sum(timing$duration_seconds),
+            nrow(timing),
+            stats::median(timing$duration_seconds)
+          )
+        ),
+        if (!pkg_available("ggplot2")) {
+          install_guidance_ui("ggplot2")
+        } else {
+          shiny::plotOutput(ns("archive_timing_plot"), height = 260)
+        }
+      )
+    })
+
+    output$archive_timing_plot <- shiny::renderPlot({
+      timing <- archive_timing(current_archive())
+      shiny::req(timing, pkg_available("ggplot2"))
+      ggplot2::ggplot(
+        timing,
+        ggplot2::aes(
+          x = timing$call,
+          y = timing$duration_seconds
+        )
+      ) +
+        ggplot2::geom_col(fill = "#6C757D") +
+        ggplot2::labs(
+          title = "Recorded duration by archived call",
+          x = "Call",
+          y = "Seconds"
+        ) +
+        ggplot2::theme_minimal()
+    })
+
+    output$report <- shiny::renderText({
+      shiny::req(current_archive())
+      report_text(current_archive())
+    })
+
+    output$summary <- shiny::renderPrint({
+      shiny::req(current_archive())
+      print(current_archive())
+    })
 
     output$check <- shiny::renderPrint({
-      shiny::req(archive())
-      a <- sealed() %||% archive()
-      safe_print(LLMRcontent::archive_check(a))
+      result <- check_result()
+      shiny::req(result)
+      if (inherits(result, "error")) {
+        cat("Could not compute:", conditionMessage(result), "\n")
+      } else {
+        print(result)
+      }
     })
 
     output$horizon <- shiny::renderPrint({
-      shiny::req(archive())
-      safe_print(verifiability_horizon(archive()))
+      result <- horizon_result()
+      shiny::req(result)
+      if (inherits(result, "error")) {
+        cat("Could not compute:", conditionMessage(result), "\n")
+      } else {
+        print(result)
+      }
     })
 
     output$replay <- shiny::renderPrint({
-      shiny::req(archive())
-      safe_print(LLMRcontent::archive_replay(archive()))
+      result <- replay_result()
+      shiny::req(result)
+      if (inherits(result, "error")) {
+        cat("Could not compute:", conditionMessage(result), "\n")
+      } else {
+        print(result)
+      }
     })
   })
 }

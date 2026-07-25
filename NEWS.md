@@ -23,3 +23,10 @@ Initial CRAN release.
   summaries.
 - `run_content_studio()` provides an optional Shiny interface. Its dependencies
   are listed in `Suggests`.
+- The studio now uses the shared generation controls, exposes protocol
+  replicates with complete run-size accounting, and presents validation,
+  correction, robustness, placebo, diagnostics, and archive results before
+  their scrollable console details. Coded-call records can flow into archive
+  completeness checks, and a built archive can be used for offline corpus
+  replay. Long text outputs no longer collapse inside fillable navigation
+  pages. Recorded call durations are summarized when the runner supplies them.

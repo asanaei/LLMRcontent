@@ -8,13 +8,37 @@
 # are defined as lazy forwarders in gui_aliases.R, so the call sites below stay
 # short without referencing the LLMR.shiny Suggests at package load.
 
+.content_archive_replay_available <- function(value) {
+  inherits(value, "archive") && !isTRUE(value$redacted)
+}
+
+.content_gold_split_size <- function(gold, split) {
+  if (is.null(gold)) return(0L)
+  out <- tryCatch(
+    LLMRcontent::gold_split(gold, split = split),
+    error = function(e) NULL
+  )
+  if (is.null(out)) return(0L)
+  NROW(out)
+}
+
 mod_coder_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::uiOutput(ns("module_ui"))
 }
 
-mod_coder_server <- function(id, shared, active = NULL) {
+mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
   shiny::moduleServer(id, function(input, output, session) {
+    if (is.null(artifacts)) {
+      artifacts <- shiny::reactiveValues(
+        coded = NULL,
+        coded_calls = NULL,
+        archive = NULL
+      )
+    }
+    archive_replay_available <- shiny::reactive({
+      .content_archive_replay_available(artifacts$archive)
+    })
     step <- shiny::reactiveVal(1L)
 
     categories <- shiny::reactiveVal(data.frame(
@@ -40,6 +64,9 @@ mod_coder_server <- function(id, shared, active = NULL) {
     corpus_raw <- shiny::reactiveVal(NULL)
     coded <- shiny::reactiveVal(NULL)
     corrected <- shiny::reactiveVal(NULL)
+    tuning_timing <- shiny::reactiveVal(NULL)
+    validation_timing <- shiny::reactiveVal(NULL)
+    coding_timing <- shiny::reactiveVal(NULL)
     run_error <- shiny::reactiveVal(NULL)
     correction_warnings <- shiny::reactiveVal(character())
 
@@ -104,21 +131,55 @@ mod_coder_server <- function(id, shared, active = NULL) {
       )
       current <- step()
       shiny::tags$div(
-        class = "d-flex flex-wrap gap-2",
-        lapply(seq_along(labels), function(i) {
-          shiny::tags$span(
-            class = paste(
-              "badge",
-              if (i == current) "text-bg-primary" else if (i < current) "text-bg-success" else "text-bg-secondary"
-            ),
-            labels[[i]]
-          )
-        })
+        shiny::tags$h4(class = "mb-2", "Coding"),
+        shiny::tags$div(
+          class = "d-flex flex-wrap gap-2",
+          lapply(seq_along(labels), function(i) {
+            shiny::tags$span(
+              class = paste(
+                "badge",
+                if (i == current) "text-bg-primary" else if (i < current) "text-bg-success" else "text-bg-secondary"
+              ),
+              labels[[i]]
+            )
+          })
+        )
       )
     })
 
     output$run_error <- shiny::renderUI({
       run_error()
+    })
+
+    output$corpus_run_context <- shiny::renderUI({
+      replay_selected <- archive_replay_available() &&
+        isTRUE(input$use_built_archive)
+      shiny::tagList(
+        if (identical(shared$mode(), "live") &&
+            !shared$can_run() && !replay_selected) {
+          live_run_blocker_ui(shared$key())
+        },
+        if (identical(shared$mode(), "demo") && !replay_selected) {
+          demo_banner_ui()
+        }
+      )
+    })
+
+    output$corpus_run_action <- shiny::renderUI({
+      replay_selected <- archive_replay_available() &&
+        isTRUE(input$use_built_archive)
+      disabled <- if (identical(shared$mode(), "live") &&
+                      !shared$can_run() && !replay_selected) {
+        "disabled"
+      } else {
+        NULL
+      }
+      shiny::actionButton(
+        session$ns("run_code_corpus"),
+        "Code corpus",
+        class = "btn-primary",
+        disabled = disabled
+      )
     })
 
     output$step_body <- shiny::renderUI({
@@ -127,9 +188,17 @@ mod_coder_server <- function(id, shared, active = NULL) {
         "1" = coder_codebook_ui(session$ns),
         "2" = coder_gold_ui(session$ns),
         "3" = coder_config_ui(session$ns, shared),
-        "4" = coder_tune_ui(session$ns, shared, protocols(), tuning()),
-        "5" = coder_validate_ui(session$ns, shared, locked_protocol(), validation()),
-        "6" = coder_corpus_ui(session$ns, shared, corpus_raw(), coded()),
+        "4" = coder_tune_ui(
+          session$ns, shared, protocols(), tuning(), tuning_timing()
+        ),
+        "5" = coder_validate_ui(
+          session$ns, shared, locked_protocol(), validation(),
+          validation_timing()
+        ),
+        "6" = coder_corpus_ui(
+          session$ns, shared, corpus_raw(), coded(), coding_timing(),
+          archive_available = archive_replay_available()
+        ),
         "7" = coder_download_ui(session$ns, coded(), validation()),
         coder_codebook_ui(session$ns)
       )
@@ -194,12 +263,36 @@ mod_coder_server <- function(id, shared, active = NULL) {
           bslib::card(
             bslib::card_header(paste("Category", i)),
             bslib::card_body(
-              shiny::textInput(session$ns(paste0("cat_label_", i)), "Label", value = df$label[[i]]),
-              shiny::textAreaInput(session$ns(paste0("cat_definition_", i)), "Definition", value = df$definition[[i]], rows = 2),
-              shiny::textAreaInput(session$ns(paste0("cat_include_", i)), "Include terms", value = df$include[[i]], rows = 2),
-              shiny::textAreaInput(session$ns(paste0("cat_exclude_", i)), "Exclude terms", value = df$exclude[[i]], rows = 2),
-              shiny::textAreaInput(session$ns(paste0("cat_examples_", i)), "Examples", value = df$examples[[i]], rows = 2),
-              shiny::textAreaInput(session$ns(paste0("cat_counterexamples_", i)), "Counterexamples", value = df$counterexamples[[i]], rows = 2)
+              shiny::textInput(
+                session$ns(paste0("cat_label_", i)), "Label",
+                value = df$label[[i]], placeholder = "Short category label"
+              ),
+              shiny::textAreaInput(
+                session$ns(paste0("cat_definition_", i)), "Definition",
+                value = df$definition[[i]], rows = 2,
+                placeholder = "State what belongs in this category."
+              ),
+              shiny::textAreaInput(
+                session$ns(paste0("cat_include_", i)), "Include terms",
+                value = df$include[[i]], rows = 2,
+                placeholder = "Optional; enter one term per line."
+              ),
+              shiny::textAreaInput(
+                session$ns(paste0("cat_exclude_", i)), "Exclude terms",
+                value = df$exclude[[i]], rows = 2,
+                placeholder = "Optional; enter one term per line."
+              ),
+              shiny::textAreaInput(
+                session$ns(paste0("cat_examples_", i)), "Examples",
+                value = df$examples[[i]], rows = 2,
+                placeholder = "Optional; enter one example per line."
+              ),
+              shiny::textAreaInput(
+                session$ns(paste0("cat_counterexamples_", i)),
+                "Counterexamples",
+                value = df$counterexamples[[i]], rows = 2,
+                placeholder = "Optional; enter one counterexample per line."
+              )
             )
           )
         }),
@@ -319,7 +412,7 @@ mod_coder_server <- function(id, shared, active = NULL) {
       DT::datatable(utils::head(df, 20), options = list(scrollX = TRUE, pageLength = 5))
     })
 
-    output$gold_size_helper <- shiny::renderPrint({
+    gold_size_result <- shiny::reactive({
       shiny::req(pkg_available("LLMRcontent"))
       LLMRcontent::gold_size(
         expected_agreement = input$expected_agreement %||% 0.8,
@@ -327,12 +420,39 @@ mod_coder_server <- function(id, shared, active = NULL) {
       )
     })
 
+    output$gold_size_status <- shiny::renderUI({
+      result <- gold_size_result()
+      shiny::tags$p(
+        class = "fw-semibold",
+        sprintf(
+          "Recommended planning size: %d human-coded units.",
+          result$recommended_size
+        )
+      )
+    })
+
+    output$gold_size_table <- DT::renderDT({
+      result <- gold_size_result()
+      candidates <- as.data.frame(result$candidates)
+      candidates$mean_ci_width <- round(candidates$mean_ci_width, 3)
+      DT::datatable(
+        candidates,
+        caption = "Candidate gold-set sizes",
+        rownames = FALSE,
+        options = list(dom = "t", pageLength = nrow(candidates))
+      )
+    })
+
+    output$gold_size_helper <- shiny::renderPrint({
+      print(gold_size_result())
+    })
+
     output$gold_status <- shiny::renderUI({
       if (is.null(gold())) return(NULL)
 
       bslib::card(
-        class = "border-info",
-        bslib::card_header("Sealed gold set"),
+        class = "border-success",
+        bslib::card_header("SEALED gold set"),
         bslib::card_body(
           "The gold set was created. The test split is reserved for validation."
         )
@@ -402,6 +522,25 @@ mod_coder_server <- function(id, shared, active = NULL) {
       shiny::tags$p(class = "text-warning", "Prompt template must contain {text} and {codebook}.")
     })
 
+    output$protocol_scale_preview <- shiny::renderUI({
+      variants <- input$prompt_variants %||% character()
+      replicates <- suppressWarnings(
+        as.integer(input$protocol_replicates %||% 1L)
+      )
+      if (is.na(replicates)) replicates <- 1L
+      calls <- length(variants) * replicates * dev_units()
+      shiny::tags$p(
+        class = "text-body-secondary",
+        sprintf(
+          paste0(
+            "Tuning scale: %d development units x %d candidates x %d ",
+            "replicates = %d expected model responses."
+          ),
+          dev_units(), length(variants), replicates, calls
+        )
+      )
+    })
+
     shiny::observeEvent(input$build_protocols, {
       if (is.null(codebook())) {
         warn_user("Save a codebook before building protocols.")
@@ -443,7 +582,9 @@ mod_coder_server <- function(id, shared, active = NULL) {
         cfg <- build_llm_config(
           provider = shared$provider(),
           model = shared$model(),
-          temperature = input$temperature %||% 0
+          temperature = shared$temperature(),
+          max_tokens = shared$max_tokens(),
+          reasoning_effort = shared$reasoning_effort()
         )
         proto_list <- lapply(variants, function(v) {
           LLMRcontent::protocol(
@@ -465,17 +606,11 @@ mod_coder_server <- function(id, shared, active = NULL) {
     })
 
     dev_units <- shiny::reactive({
-      if (is.null(gold())) return(0L)
-      out <- tryCatch(LLMRcontent::gold_split(gold(), split = "dev"), error = function(e) NULL)
-      if (is.null(out)) return(0L)
-      NROW(as_display_table(out))
+      .content_gold_split_size(gold(), "dev")
     })
 
     test_units <- shiny::reactive({
-      if (is.null(gold())) return(0L)
-      out <- tryCatch(LLMRcontent::gold_split(gold(), split = "test"), error = function(e) NULL)
-      if (is.null(out)) return(0L)
-      NROW(as_display_table(out))
+      .content_gold_split_size(gold(), "test")
     })
 
     run_tune <- function(confirmed = FALSE) {
@@ -515,6 +650,13 @@ mod_coder_server <- function(id, shared, active = NULL) {
         }
       }
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
+      call_batches <- list()
+      timed_runner <- function(experiments, ...) {
+        result <- runner(experiments, ...)
+        call_batches[[length(call_batches) + 1L]] <<- result
+        result
+      }
+      started <- proc.time()[["elapsed"]]
 
       res <- safe_llmr_call(
         shiny::withProgress(message = "Tuning protocols", value = 0, {
@@ -523,7 +665,7 @@ mod_coder_server <- function(id, shared, active = NULL) {
             protocols = protocols(),
             gold = gold(),
             split = "dev",
-            .runner = runner
+            .runner = timed_runner
           )
           shiny::incProgress(0.8)
           out
@@ -538,6 +680,7 @@ mod_coder_server <- function(id, shared, active = NULL) {
 
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
       tuning(out)
+      tuning_timing(finish_call_timing(call_batches, started))
       add_result_usage(tibble::as_tibble(out), fallback_calls = planned)
       run_error(NULL)
     }
@@ -560,6 +703,43 @@ mod_coder_server <- function(id, shared, active = NULL) {
         caption = "Development-split performance used for protocol tuning",
         options = list(scrollX = TRUE, pageLength = 5)
       )
+    })
+
+    output$tune_timing_status <- shiny::renderUI({
+      text <- timing_summary_text(tuning_timing())
+      if (is.null(text)) return(NULL)
+      shiny::tags$p(class = "text-body-secondary", text)
+    })
+
+    output$tune_timing_ui <- shiny::renderUI({
+      if (is.null(tuning_timing())) return(NULL)
+      shiny::tagList(
+        shiny::uiOutput(session$ns("tune_timing_status")),
+        if (!pkg_available("ggplot2")) {
+          install_guidance_ui("ggplot2")
+        } else {
+          shiny::plotOutput(session$ns("tune_timing_plot"), height = 260)
+        }
+      )
+    })
+
+    output$tune_timing_plot <- shiny::renderPlot({
+      timing <- timing_by_unit(tuning_timing())
+      shiny::req(timing, pkg_available("ggplot2"))
+      ggplot2::ggplot(
+        timing,
+        ggplot2::aes(
+          x = timing$unit_id,
+          y = timing$duration_seconds
+        )
+      ) +
+        ggplot2::geom_col(fill = "#6C757D") +
+        ggplot2::labs(
+          title = "Recorded call time by development unit",
+          x = "Unit",
+          y = "Seconds"
+        ) +
+        ggplot2::theme_minimal()
     })
 
     output$winner_ui <- shiny::renderUI({
@@ -659,6 +839,13 @@ mod_coder_server <- function(id, shared, active = NULL) {
         }
       }
       runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
+      call_batches <- list()
+      timed_runner <- function(experiments, ...) {
+        result <- runner(experiments, ...)
+        call_batches[[length(call_batches) + 1L]] <<- result
+        result
+      }
+      started <- proc.time()[["elapsed"]]
 
       res <- safe_llmr_call(
         shiny::withProgress(message = "Validating locked protocol", value = 0, {
@@ -667,7 +854,7 @@ mod_coder_server <- function(id, shared, active = NULL) {
             protocol = locked_protocol(),
             gold = gold(),
             split = "test",
-            .runner = runner
+            .runner = timed_runner
           )
           shiny::incProgress(0.8)
           out
@@ -682,6 +869,7 @@ mod_coder_server <- function(id, shared, active = NULL) {
 
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
       validation(out)
+      validation_timing(finish_call_timing(call_batches, started))
       add_result_usage(out, fallback_calls = planned)
       run_error(NULL)
     }
@@ -702,7 +890,109 @@ mod_coder_server <- function(id, shared, active = NULL) {
           "Validate the locked protocol to see validation results."
         )
       )
-      DT::datatable(as_display_table(validation()), options = list(scrollX = TRUE, pageLength = 5))
+      DT::datatable(
+        as_display_table(diagnostics_table(validation())),
+        caption = "Holdout validation summary",
+        rownames = FALSE,
+        options = list(scrollX = TRUE, dom = "t")
+      )
+    })
+
+    output$validation_status <- shiny::renderUI({
+      value <- validation()
+      if (is.null(value)) return(NULL)
+      shiny::tags$p(
+        class = "fw-semibold",
+        sprintf(
+          paste0(
+            "Holdout accuracy %.3f (95%% CI %.3f to %.3f); ",
+            "macro-F1 %.3f; %d parse failures."
+          ),
+          value$accuracy,
+          value$acc_lo,
+          value$acc_hi,
+          value$macro_f1,
+          value$parse_failures
+        )
+      )
+    })
+
+    output$validation_categories <- DT::renderDT({
+      value <- validation()
+      shiny::req(value)
+      DT::datatable(
+        as_display_table(value$per_category),
+        caption = "Validation by category",
+        rownames = FALSE,
+        options = list(scrollX = TRUE, dom = "t")
+      )
+    })
+
+    output$validation_confusion <- DT::renderDT({
+      value <- validation()
+      shiny::req(value)
+      table <- as.data.frame.matrix(value$confusion)
+      table <- cbind(truth = rownames(table), table, row.names = NULL)
+      DT::datatable(
+        table,
+        caption = "Confusion matrix",
+        rownames = FALSE,
+        options = list(scrollX = TRUE, dom = "t")
+      )
+    })
+
+    output$validation_report <- shiny::renderText({
+      shiny::req(validation(), gold(), locked_protocol())
+      report_text(
+        validation(),
+        gold = gold(),
+        protocol = locked_protocol()
+      )
+    })
+
+    output$validation_raw <- shiny::renderPrint({
+      shiny::req(validation())
+      print(validation())
+    })
+
+    output$validation_timing_status <- shiny::renderUI({
+      text <- timing_summary_text(validation_timing())
+      if (is.null(text)) return(NULL)
+      shiny::tags$p(class = "text-body-secondary", text)
+    })
+
+    output$validation_timing_ui <- shiny::renderUI({
+      if (is.null(validation_timing())) return(NULL)
+      shiny::tagList(
+        shiny::uiOutput(session$ns("validation_timing_status")),
+        if (!pkg_available("ggplot2")) {
+          install_guidance_ui("ggplot2")
+        } else {
+          shiny::plotOutput(
+            session$ns("validation_timing_plot"),
+            height = 260
+          )
+        }
+      )
+    })
+
+    output$validation_timing_plot <- shiny::renderPlot({
+      timing <- timing_by_unit(validation_timing())
+      shiny::req(timing, pkg_available("ggplot2"))
+      ggplot2::ggplot(
+        timing,
+        ggplot2::aes(
+          x = timing$unit_id,
+          y = timing$duration_seconds
+        )
+      ) +
+        ggplot2::geom_col(fill = "#6C757D") +
+        ggplot2::labs(
+          title = "Recorded call time by holdout unit",
+          x = "Unit",
+          y = "Seconds"
+        ) +
+        ggplot2::theme_minimal()
     })
 
     output$validation_plot <- shiny::renderPlot({
@@ -729,6 +1019,11 @@ mod_coder_server <- function(id, shared, active = NULL) {
         ggplot2::theme_minimal()
     })
 
+    output$validation_plot_ui <- shiny::renderUI({
+      if (!pkg_available("ggplot2")) return(install_guidance_ui("ggplot2"))
+      shiny::plotOutput(session$ns("validation_plot"), height = 300)
+    })
+
     shiny::observeEvent(input$continue_validate, {
       if (is.null(validation())) {
         warn_user("Validate the locked protocol before continuing to corpus coding.")
@@ -744,6 +1039,9 @@ mod_coder_server <- function(id, shared, active = NULL) {
       corpus_raw(df)
       coded(NULL)
       corrected(NULL)
+      coding_timing(NULL)
+      artifacts$coded <- NULL
+      artifacts$coded_calls <- NULL
     })
 
     shiny::observeEvent(input$load_demo_corpus, {
@@ -751,6 +1049,9 @@ mod_coder_server <- function(id, shared, active = NULL) {
       corpus_raw(read_csv_path(path))
       coded(NULL)
       corrected(NULL)
+      coding_timing(NULL)
+      artifacts$coded <- NULL
+      artifacts$coded_calls <- NULL
     })
 
     output$corpus_map_ui <- shiny::renderUI({
@@ -785,6 +1086,17 @@ mod_coder_server <- function(id, shared, active = NULL) {
 
       estimate <- switch(
         as.character(step()),
+        "3" = {
+          variants <- input$prompt_variants %||% character()
+          replicates <- suppressWarnings(
+            as.integer(input$protocol_replicates %||% 1L)
+          )
+          if (is.na(replicates)) replicates <- 1L
+          list(
+            calls = length(variants) * replicates * dev_units(),
+            task = "Protocol tuning"
+          )
+        },
         "4" = {
           if (is.null(protocols())) {
             list(calls = 0L, task = "Tuning")
@@ -806,6 +1118,9 @@ mod_coder_server <- function(id, shared, active = NULL) {
         "6" = {
           if (is.null(corpus_raw()) || is.null(locked_protocol())) {
             list(calls = 0L, task = "Corpus coding")
+          } else if (archive_replay_available() &&
+                     isTRUE(input$use_built_archive)) {
+            list(calls = 0L, task = "Offline archive replay")
           } else {
             list(
               calls = NROW(corpus_raw()) * locked_protocol()$replicates,
@@ -837,7 +1152,11 @@ mod_coder_server <- function(id, shared, active = NULL) {
         return()
       }
 
-      if (identical(shared$mode(), "live") && !shared$can_run()) {
+      use_archive <- archive_replay_available() &&
+        isTRUE(input$use_built_archive)
+
+      if (!use_archive &&
+          identical(shared$mode(), "live") && !shared$can_run()) {
         run_error(live_run_blocker_ui(shared$key()))
         shiny::showNotification(
           "Set the provider API key before coding the corpus.",
@@ -849,7 +1168,7 @@ mod_coder_server <- function(id, shared, active = NULL) {
 
       reps <- as.integer((locked_protocol() %||% list())$replicates %||% 1L)
       planned <- NROW(corpus_raw()) * reps
-      if (identical(shared$mode(), "live")) {
+      if (identical(shared$mode(), "live") && !use_archive) {
         shared$set_plan(planned, plan_label("Corpus coding", planned))
         if (!isTRUE(confirmed) &&
             planned > .content_large_run_threshold) {
@@ -863,7 +1182,19 @@ mod_coder_server <- function(id, shared, active = NULL) {
           return()
         }
       }
-      runner <- build_runner(shared$mode(), coder_demo_responder(codebook()))
+      runner <- if (use_archive) {
+        LLMRcontent::archive_replay(artifacts$archive)
+      } else {
+        build_runner(shared$mode(), coder_demo_responder(codebook()))
+      }
+      call_batches <- list()
+      timed_runner <- function(experiments, ...) {
+        result <- runner(experiments, ...)
+        call_batches[[length(call_batches) + 1L]] <<- result
+        result
+      }
+      started <- proc.time()[["elapsed"]]
+      coding_timing(NULL)
 
       res <- safe_llmr_call(
         shiny::withProgress(message = "Coding corpus", value = 0, {
@@ -872,7 +1203,7 @@ mod_coder_server <- function(id, shared, active = NULL) {
             corpus = corpus_raw(),
             text_col = text_col,
             protocol = locked_protocol(),
-            .runner = runner
+            .runner = timed_runner
           )
           shiny::incProgress(0.8)
           out
@@ -885,9 +1216,21 @@ mod_coder_server <- function(id, shared, active = NULL) {
         return()
       }
 
-      out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
+      out <- if (identical(shared$mode(), "demo") && !use_archive) {
+        annotate_demo_result(res$value)
+      } else {
+        res$value
+      }
+      call_results <- bind_call_batches(call_batches)
       coded(out)
-      add_result_usage(out, fallback_calls = planned)
+      coding_timing(finish_call_timing(call_batches, started))
+      artifacts$coded <- out
+      artifacts$coded_calls <- call_results
+      if (use_archive) {
+        shared$add_usage(list(result_rows = NROW(call_results)))
+      } else {
+        add_result_usage(out, fallback_calls = planned)
+      }
 
       warns <- character()
       corr <- tryCatch(
@@ -929,6 +1272,37 @@ mod_coder_server <- function(id, shared, active = NULL) {
                     options = list(scrollX = TRUE, pageLength = 5))
     })
 
+    output$coded_status <- shiny::renderUI({
+      value <- coded()
+      if (is.null(value)) return(NULL)
+      data <- tibble::as_tibble(value)
+      shiny::tags$p(
+        class = "fw-semibold",
+        sprintf(
+          "Coded %d units under protocol %s with %d replicate%s per unit.",
+          nrow(data),
+          substr(value$protocol_hash, 1, 12),
+          locked_protocol()$replicates,
+          if (identical(locked_protocol()$replicates, 1L)) "" else "s"
+        )
+      )
+    })
+
+    output$coded_distribution <- DT::renderDT({
+      value <- coded()
+      shiny::req(value)
+      labels <- as.character(tibble::as_tibble(value)$label)
+      counts <- as.data.frame(table(label = labels, useNA = "ifany"))
+      names(counts)[2] <- "n"
+      counts$share <- counts$n / sum(counts$n)
+      DT::datatable(
+        counts,
+        caption = "Coded-label distribution",
+        rownames = FALSE,
+        options = list(dom = "t")
+      )
+    })
+
     output$correction_table <- DT::renderDT({
       shiny::validate(
         shiny::need(
@@ -954,6 +1328,58 @@ mod_coder_server <- function(id, shared, active = NULL) {
       )
     })
 
+    output$coding_report <- shiny::renderText({
+      shiny::req(validation(), gold(), locked_protocol())
+      report_text(
+        validation(),
+        gold = gold(),
+        protocol = locked_protocol()
+      )
+    })
+
+    output$coding_raw <- shiny::renderPrint({
+      shiny::req(coded())
+      print(coded())
+      if (!is.null(corrected())) print(corrected())
+    })
+
+    output$coding_timing_status <- shiny::renderUI({
+      text <- timing_summary_text(coding_timing())
+      if (is.null(text)) return(NULL)
+      shiny::tags$p(class = "text-body-secondary", text)
+    })
+
+    output$coding_timing_ui <- shiny::renderUI({
+      if (is.null(coding_timing())) return(NULL)
+      shiny::tagList(
+        shiny::uiOutput(session$ns("coding_timing_status")),
+        if (!pkg_available("ggplot2")) {
+          install_guidance_ui("ggplot2")
+        } else {
+          shiny::plotOutput(session$ns("coding_timing_plot"), height = 260)
+        }
+      )
+    })
+
+    output$coding_timing_plot <- shiny::renderPlot({
+      timing <- timing_by_unit(coding_timing())
+      shiny::req(timing, pkg_available("ggplot2"))
+      ggplot2::ggplot(
+        timing,
+        ggplot2::aes(
+          x = timing$unit_id,
+          y = timing$duration_seconds
+        )
+      ) +
+        ggplot2::geom_col(fill = "#6C757D") +
+        ggplot2::labs(
+          title = "Recorded call time by corpus unit",
+          x = "Unit",
+          y = "Seconds"
+        ) +
+        ggplot2::theme_minimal()
+    })
+
     shiny::observeEvent(input$continue_corpus, {
       if (is.null(coded())) {
         warn_user("Code the corpus before continuing to downloads.")
@@ -964,15 +1390,40 @@ mod_coder_server <- function(id, shared, active = NULL) {
 
     output$download_summary <- shiny::renderUI({
       shiny::req(coded(), validation(), locked_protocol())
+      coded_demo <- is_demo_result(coded())
+      validation_demo <- is_demo_result(validation())
+      provenance <- if (coded_demo && validation_demo) {
+        "The coded corpus and validation report come from deterministic demo runs."
+      } else if (coded_demo) {
+        "The coded corpus comes from a deterministic demo run; the validation report does not."
+      } else if (validation_demo) {
+        "The validation report comes from a deterministic demo run; the coded corpus does not."
+      } else {
+        NULL
+      }
 
       shiny::tagList(
-        if (identical(shared$mode(), "demo") || is_demo_result(coded())) demo_banner_ui(),
+        if (!is.null(provenance)) {
+          shiny::tagList(
+            demo_banner_ui(),
+            shiny::tags$p(class = "text-body-secondary", provenance)
+          )
+        },
         shiny::tags$ul(
           shiny::tags$li("Coded corpus CSV"),
           shiny::tags$li("Methods text from LLMR::report()"),
           shiny::tags$li("Locked protocol and validation context represented in the methods text")
         ),
         shiny::tags$p("Next: use the methods text with reports, and keep the locked protocol with project records.")
+      )
+    })
+
+    output$download_report <- shiny::renderText({
+      shiny::req(validation(), gold(), locked_protocol())
+      report_text(
+        validation(),
+        gold = gold(),
+        protocol = locked_protocol()
       )
     })
 
@@ -987,9 +1438,15 @@ mod_coder_server <- function(id, shared, active = NULL) {
           gold = gold(),
           protocol = locked_protocol(),
           file = file,
-          demo = identical(shared$mode(), "demo") || is_demo_result(coded())
+          coded_demo = is_demo_result(coded()),
+          validation_demo = is_demo_result(validation())
         )
       }
+    )
+
+    list(
+      coded = shiny::reactive(coded()),
+      coded_calls = shiny::reactive(artifacts$coded_calls)
     )
   })
 }
@@ -997,15 +1454,27 @@ mod_coder_server <- function(id, shared, active = NULL) {
 coder_codebook_ui <- function(ns) {
   shiny::tagList(
     shiny::fluidRow(
-      shiny::column(6, shiny::textInput(ns("codebook_name"), "Codebook name", "Demo codebook")),
-      shiny::column(6, shiny::textInput(ns("codebook_unit"), "Unit", "text response"))
+      shiny::column(
+        6,
+        shiny::textInput(
+          ns("codebook_name"), "Codebook name", "Demo codebook",
+          placeholder = "Descriptive codebook name"
+        )
+      ),
+      shiny::column(
+        6,
+        shiny::textInput(
+          ns("codebook_unit"), "Unit", "text response",
+          placeholder = "Unit of analysis"
+        )
+      )
     ),
     shiny::uiOutput(ns("category_editor")),
     bslib::card(
       bslib::card_header("Preview"),
       bslib::card_body(
-        shiny::verbatimTextOutput(ns("codebook_preview")),
-        shiny::verbatimTextOutput(ns("codebook_hash"))
+        text_block_output(ns("codebook_preview"), height = "20rem"),
+        shiny::textOutput(ns("codebook_hash"))
       )
     ),
     shiny::actionButton(ns("save_codebook"), "Save and continue", class = "btn-primary")
@@ -1020,16 +1489,47 @@ coder_gold_ui <- function(ns) {
     ),
     shiny::uiOutput(ns("gold_map_ui")),
     shiny::fluidRow(
-      shiny::column(3, shiny::numericInput(ns("dev_split"), "Dev split percent", value = 60, min = 10, max = 90, step = 5)),
+      shiny::column(
+        3,
+        shiny::numericInput(
+          ns("dev_split"),
+          shiny::tagList(
+            "Development split percent ",
+            help_tip(
+              "The development split is used for tuning; the remainder is reserved as the sealed holdout."
+            )
+          ),
+          value = 60, min = 10, max = 90, step = 5
+        )
+      ),
       shiny::column(3, shiny::checkboxInput(ns("stratify_gold"), "Stratify", value = TRUE)),
       shiny::column(3, shiny::numericInput(ns("gold_seed"), "Seed", value = 110, min = 1, step = 1)),
-      shiny::column(3, shiny::actionButton(ns("create_gold"), "Create sealed gold", class = "btn-primary"))
+      shiny::column(
+        3,
+        shiny::tags$div(
+          class = "d-flex align-items-center gap-2 mt-4",
+          shiny::actionButton(
+            ns("create_gold"), "Create sealed gold", class = "btn-primary"
+          ),
+          help_tip(
+            "Sealing reserves the holdout for validation and records every use in its ledger."
+          )
+        )
+      )
     ),
     shiny::fluidRow(
       shiny::column(6, shiny::numericInput(ns("expected_agreement"), "Expected agreement", value = 0.8, min = 0.1, max = 1, step = 0.05)),
       shiny::column(6, shiny::numericInput(ns("ci_width"), "CI width", value = 0.1, min = 0.01, max = 0.5, step = 0.01))
     ),
-    shiny::verbatimTextOutput(ns("gold_size_helper")),
+    shiny::uiOutput(ns("gold_size_status")),
+    DT::DTOutput(ns("gold_size_table")),
+    bslib::accordion(
+      bslib::accordion_panel(
+        "Technical details",
+        text_block_output(ns("gold_size_helper"), height = "10rem")
+      ),
+      open = FALSE
+    ),
     shiny::uiOutput(ns("gold_status")),
     DT::DTOutput(ns("gold_preview")),
     shiny::actionButton(ns("continue_gold"), "Continue", class = "btn-primary")
@@ -1084,10 +1584,17 @@ coder_config_ui <- function(ns, shared) {
       choices = c("Base" = "base", "Strict label only" = "strict", "Include uncertainty instruction" = "uncertain"),
       selected = c("base", "strict")
     ),
-    shiny::fluidRow(
-      shiny::column(6, shiny::numericInput(ns("temperature"), "Temperature", value = 0, min = 0, max = 2, step = 0.1)),
-      shiny::column(6, shiny::numericInput(ns("protocol_replicates"), "Replicates", value = 1, min = 1, max = 10, step = 1))
+    shiny::numericInput(
+      ns("protocol_replicates"),
+      shiny::tagList(
+        "Replicates ",
+        help_tip(
+          "Each unit is coded this many times and reduced to its modal label."
+        )
+      ),
+      value = 1, min = 1, max = 10, step = 1
     ),
+    shiny::uiOutput(ns("protocol_scale_preview")),
     shiny::actionButton(ns("build_protocols"), "Build protocols", class = "btn-primary")
   )
 }
@@ -1101,7 +1608,7 @@ prompt_variant <- function(prompt, variant) {
   )
 }
 
-coder_tune_ui <- function(ns, shared, protocols, tuning) {
+coder_tune_ui <- function(ns, shared, protocols, tuning, timing = NULL) {
   disabled <- if (identical(shared$mode(), "live") && !shared$can_run()) "disabled" else NULL
 
   shiny::tagList(
@@ -1110,48 +1617,108 @@ coder_tune_ui <- function(ns, shared, protocols, tuning) {
     shiny::tags$p(paste0("Protocol candidates: ", length(protocols %||% list()))),
     shiny::actionButton(ns("run_tune"), "Run tuning", class = "btn-primary", disabled = disabled),
     DT::DTOutput(ns("tune_table")),
+    shiny::uiOutput(ns("tune_timing_ui")),
     shiny::uiOutput(ns("winner_ui")),
     shiny::actionButton(ns("continue_tune"), "Continue to lock", class = "btn-primary")
   )
 }
 
-coder_validate_ui <- function(ns, shared, locked, validation) {
+coder_validate_ui <- function(ns, shared, locked, validation, timing = NULL) {
   disabled <- if (identical(shared$mode(), "live") && !shared$can_run()) "disabled" else NULL
 
   shiny::tagList(
     if (identical(shared$mode(), "live") && !shared$can_run()) live_run_blocker_ui(shared$key()),
     if (identical(shared$mode(), "demo")) demo_banner_ui(),
-    shiny::actionButton(ns("lock_protocol"), "Lock selected protocol", class = "btn-primary"),
+    shiny::tags$div(
+      class = "d-flex align-items-center gap-2",
+      shiny::actionButton(
+        ns("lock_protocol"), "Lock selected protocol", class = "btn-primary"
+      ),
+      help_tip(
+        "Locking hashes the codebook, prompt, model settings, parser, and replicate count."
+      )
+    ),
     shiny::uiOutput(ns("lock_status")),
-    shiny::checkboxInput(ns("confirm_ledger"), "Validation is ledgered against the sealed test split", value = FALSE),
+    shiny::checkboxInput(
+      ns("confirm_ledger"),
+      shiny::tagList(
+        "Validation is ledgered against the sealed test split ",
+        help_tip(
+          "Each holdout evaluation is appended to the gold-set ledger."
+        )
+      ),
+      value = FALSE
+    ),
     shiny::actionButton(ns("run_validate"), "Validate locked protocol", class = "btn-primary", disabled = disabled),
+    shiny::uiOutput(ns("validation_status")),
     DT::DTOutput(ns("validation_table")),
-    shiny::plotOutput(ns("validation_plot"), height = 300),
+    DT::DTOutput(ns("validation_categories")),
+    DT::DTOutput(ns("validation_confusion")),
+    shiny::uiOutput(ns("validation_timing_ui")),
+    shiny::uiOutput(ns("validation_plot_ui")),
     shiny::tags$h4("Gold ledger"),
     DT::DTOutput(ns("ledger_table")),
+    bslib::accordion(
+      bslib::accordion_panel(
+        "Technical details",
+        shiny::tags$h5("Methods report"),
+        text_block_output(ns("validation_report"), height = "20rem"),
+        shiny::tags$h5("Console summary"),
+        text_block_output(ns("validation_raw"), height = "10rem")
+      ),
+      open = FALSE
+    ),
     shiny::actionButton(ns("continue_validate"), "Continue to corpus coding", class = "btn-primary")
   )
 }
 
-coder_corpus_ui <- function(ns, shared, corpus, coded) {
-  disabled <- if (identical(shared$mode(), "live") && !shared$can_run()) "disabled" else NULL
-
+coder_corpus_ui <- function(ns, shared, corpus, coded, timing = NULL,
+                            archive_available = FALSE) {
   shiny::tagList(
-    if (identical(shared$mode(), "live") && !shared$can_run()) live_run_blocker_ui(shared$key()),
-    if (identical(shared$mode(), "demo")) demo_banner_ui(),
+    shiny::uiOutput(ns("corpus_run_context")),
     shiny::fluidRow(
       shiny::column(6, shiny::fileInput(ns("corpus_file"), "Corpus CSV", accept = ".csv")),
       shiny::column(6, shiny::actionButton(ns("load_demo_corpus"), "Load demo corpus"))
     ),
     shiny::uiOutput(ns("corpus_map_ui")),
+    if (isTRUE(archive_available)) {
+      bslib::card(
+        class = "border-info",
+        bslib::card_body(
+          shiny::checkboxInput(
+            ns("use_built_archive"),
+            shiny::tagList(
+              "Use the archive held in the Archive tab for offline replay ",
+              help_tip(
+                "Replay succeeds only when the protocol configuration and rendered requests match archived calls."
+              )
+            ),
+            value = FALSE
+          )
+        )
+      )
+    },
     # Replicates are fixed by the locked protocol, not chosen here, so there is
     # no corpus-replicates control; the cost estimate reads protocol$replicates.
     shiny::numericInput(ns("correction_conf"), "Correction confidence", value = 0.95, min = 0.5, max = 0.99, step = 0.01),
     DT::DTOutput(ns("corpus_preview")),
-    shiny::actionButton(ns("run_code_corpus"), "Code corpus", class = "btn-primary", disabled = disabled),
+    shiny::uiOutput(ns("corpus_run_action")),
     shiny::uiOutput(ns("correction_warnings")),
+    shiny::uiOutput(ns("coded_status")),
+    DT::DTOutput(ns("coded_distribution")),
     DT::DTOutput(ns("coded_preview")),
     DT::DTOutput(ns("correction_table")),
+    shiny::uiOutput(ns("coding_timing_ui")),
+    bslib::accordion(
+      bslib::accordion_panel(
+        "Technical details",
+        shiny::tags$h5("Methods report"),
+        text_block_output(ns("coding_report"), height = "20rem"),
+        shiny::tags$h5("Console summaries"),
+        text_block_output(ns("coding_raw"), height = "12rem")
+      ),
+      open = FALSE
+    ),
     shiny::actionButton(ns("continue_corpus"), "Continue to downloads", class = "btn-primary")
   )
 }
@@ -1159,6 +1726,8 @@ coder_corpus_ui <- function(ns, shared, corpus, coded) {
 coder_download_ui <- function(ns, coded, validation) {
   shiny::tagList(
     shiny::uiOutput(ns("download_summary")),
+    shiny::tags$h4("Methods report"),
+    text_block_output(ns("download_report"), height = "20rem"),
     shiny::downloadButton(ns("download_bundle"), "Download artifacts")
   )
 }
