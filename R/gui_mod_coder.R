@@ -70,6 +70,45 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     run_error <- shiny::reactiveVal(NULL)
     correction_warnings <- shiny::reactiveVal(character())
 
+    reset_coded_state <- function() {
+      coded(NULL)
+      corrected(NULL)
+      coding_timing(NULL)
+      correction_warnings(character())
+      artifacts$coded <- NULL
+      artifacts$coded_calls <- NULL
+    }
+
+    reset_validation_state <- function() {
+      validation(NULL)
+      validation_timing(NULL)
+      reset_coded_state()
+    }
+
+    reset_lock_state <- function() {
+      locked_protocol(NULL)
+      shiny::updateCheckboxInput(
+        session,
+        "confirm_ledger",
+        value = FALSE
+      )
+      reset_validation_state()
+    }
+
+    reset_protocol_state <- function() {
+      protocols(NULL)
+      tuning(NULL)
+      tuning_timing(NULL)
+      reset_lock_state()
+    }
+
+    validation_matches_lock <- shiny::reactive({
+      value <- validation()
+      locked <- locked_protocol()
+      !is.null(value) && !is.null(locked) &&
+        identical(value$protocol_hash, locked$hash)
+    })
+
     warn_user <- function(message) {
       run_error(
         bslib::card(
@@ -169,17 +208,27 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     output$corpus_run_action <- shiny::renderUI({
       replay_selected <- archive_replay_available() &&
         isTRUE(input$use_built_archive)
-      disabled <- if (identical(shared$mode(), "live") &&
-                      !shared$can_run() && !replay_selected) {
-        "disabled"
+      text_col <- input$corpus_text_col %||% ""
+      reason <- if (is.null(locked_protocol())) {
+        "Corpus coding is disabled until a protocol is locked."
+      } else if (!validation_matches_lock()) {
+        "Corpus coding is disabled until the locked protocol is validated."
+      } else if (is.null(corpus_raw())) {
+        "Corpus coding is disabled until a corpus is loaded."
+      } else if (!nzchar(text_col) ||
+                 !text_col %in% names(corpus_raw())) {
+        "Corpus coding is disabled until a text column is selected."
+      } else if (identical(shared$mode(), "live") &&
+                 !shared$can_run() && !replay_selected) {
+        "Corpus coding is disabled until the provider API key is available."
       } else {
         NULL
       }
-      shiny::actionButton(
+      .content_action_control(
         session$ns("run_code_corpus"),
         "Code corpus",
         class = "btn-primary",
-        disabled = disabled
+        reason = reason
       )
     })
 
@@ -318,6 +367,22 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       )
     }
 
+    output$save_codebook_action <- shiny::renderUI({
+      labels <- collect_categories()$label
+      reason <- if (length(labels) < 2L || any(!nzchar(trimws(labels)))) {
+        "Saving is disabled until every category has a label."
+      } else if (anyDuplicated(labels)) {
+        "Saving is disabled until category labels are unique."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("save_codebook"),
+        "Save and continue",
+        reason = reason
+      )
+    })
+
     draft_codebook <- shiny::reactive({
       build_codebook()
     })
@@ -420,6 +485,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
         return()
       }
       run_error(NULL)
+      reset_protocol_state()
       codebook(res$value)
       step(2L)
     })
@@ -443,12 +509,16 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       run_error(NULL)
       gold_raw(df)
       gold(NULL)
+      reset_protocol_state()
+      step(2L)
     })
 
     shiny::observeEvent(input$load_demo_gold, {
       path <- system.file("extdata", "demo_gold.csv", package = "LLMRcontent")
       gold_raw(read_csv_path(path))
       gold(NULL)
+      reset_protocol_state()
+      step(2L)
     })
 
     output$gold_map_ui <- shiny::renderUI({
@@ -461,9 +531,21 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       }
 
       cols <- column_names_for_mapping(df)
+      text_col <- guess_column(cols, "text")
+      label_col <- guess_column(cols, "label", exclude = text_col)
       shiny::tagList(
-        shiny::selectInput(session$ns("gold_text_col"), "Text column", choices = cols, selected = cols[[1]]),
-        shiny::selectInput(session$ns("gold_label_col"), "Label column", choices = cols, selected = cols[[min(2, length(cols))]])
+        shiny::selectInput(
+          session$ns("gold_text_col"),
+          "Text column",
+          choices = cols,
+          selected = text_col
+        ),
+        shiny::selectInput(
+          session$ns("gold_label_col"),
+          "Label column",
+          choices = cols,
+          selected = label_col
+        )
       )
     })
 
@@ -569,6 +651,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       }
 
       run_error(NULL)
+      reset_protocol_state()
       gold(res$value)
     })
 
@@ -671,6 +754,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       }, shared$provider())
 
       if (!res$ok) { run_error(res$ui); return() }
+      reset_protocol_state()
       protocols(res$value)
       run_error(NULL)
       step(4L)
@@ -682,6 +766,188 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
 
     test_units <- shiny::reactive({
       .content_gold_split_size(gold(), "test")
+    })
+
+    output$create_gold_action <- shiny::renderUI({
+      text_col <- input$gold_text_col %||% ""
+      label_col <- input$gold_label_col %||% ""
+      dev_split <- suppressWarnings(
+        as.numeric(input$dev_split %||% 60)
+      )
+      reason <- if (is.null(gold_raw())) {
+        "Gold-set creation is disabled until gold data are loaded."
+      } else if (NROW(gold_raw()) < 2L) {
+        "Gold-set creation is disabled until at least two rows are loaded."
+      } else if (!nzchar(text_col) ||
+                 !text_col %in% names(gold_raw())) {
+        "Gold-set creation is disabled until a text column is selected."
+      } else if (!nzchar(label_col) ||
+                 !label_col %in% names(gold_raw())) {
+        "Gold-set creation is disabled until a label column is selected."
+      } else if (identical(text_col, label_col)) {
+        "Gold-set creation is disabled until different text and label columns are selected."
+      } else if (anyNA(gold_raw()[[label_col]])) {
+        "Gold-set creation is disabled until missing labels are resolved."
+      } else if (length(dev_split) != 1L || !is.finite(dev_split) ||
+                 dev_split <= 0 || dev_split >= 100) {
+        "Gold-set creation is disabled until the development split is between 0 and 100 percent."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("create_gold"),
+        "Create sealed gold",
+        reason = reason
+      )
+    })
+
+    output$continue_gold_action <- shiny::renderUI({
+      reason <- if (is.null(gold())) {
+        "Continue is disabled until the sealed gold set is created."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("continue_gold"),
+        "Continue",
+        reason = reason,
+        class = "btn-outline-primary"
+      )
+    })
+
+    output$build_protocols_action <- shiny::renderUI({
+      replicates <- suppressWarnings(
+        as.integer(input$protocol_replicates %||% NA_integer_)
+      )
+      reason <- if (is.null(codebook())) {
+        "Protocol building is disabled until the codebook is saved."
+      } else if (is.null(gold())) {
+        "Protocol building is disabled until the sealed gold set is created."
+      } else if (!prompt_valid()) {
+        "Protocol building is disabled until the prompt contains {text} and {codebook}."
+      } else if (!length(input$prompt_variants %||% character())) {
+        "Protocol building is disabled until a prompt candidate is selected."
+      } else if (is.na(replicates) || replicates < 1L) {
+        "Protocol building is disabled until a positive replicate count is entered."
+      } else if (identical(shared$mode(), "live") &&
+                 !nzchar(trimws(shared$model() %||% ""))) {
+        "Protocol building is disabled until a model is entered."
+      } else if (identical(shared$mode(), "live") &&
+                 !shared$can_run()) {
+        "Protocol building is disabled until the provider API key is available."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("build_protocols"),
+        "Build protocols",
+        reason = reason
+      )
+    })
+
+    output$run_tune_action <- shiny::renderUI({
+      reason <- if (is.null(protocols()) || !length(protocols())) {
+        "Tuning is disabled until protocol candidates are built."
+      } else if (is.null(gold()) || dev_units() < 1L) {
+        "Tuning is disabled until the gold set has development units."
+      } else if (identical(shared$mode(), "live") &&
+                 !shared$can_run()) {
+        "Tuning is disabled until the provider API key is available."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("run_tune"),
+        "Run tuning",
+        reason = reason
+      )
+    })
+
+    output$continue_tune_action <- shiny::renderUI({
+      winner <- input$winner_protocol %||% ""
+      reason <- if (is.null(tuning())) {
+        "Continue is disabled until tuning is complete."
+      } else if (is.null(protocols()) ||
+                 !winner %in% names(protocols())) {
+        "Continue is disabled until a winning protocol is selected."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("continue_tune"),
+        "Continue to lock",
+        reason = reason,
+        class = "btn-outline-primary"
+      )
+    })
+
+    output$lock_protocol_action <- shiny::renderUI({
+      winner <- input$winner_protocol %||% ""
+      reason <- if (is.null(protocols()) || !length(protocols())) {
+        "Locking is disabled until protocol candidates are built."
+      } else if (!winner %in% names(protocols())) {
+        "Locking is disabled until a protocol is selected."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("lock_protocol"),
+        "Lock selected protocol",
+        reason = reason,
+        class = "btn-outline-primary"
+      )
+    })
+
+    output$run_validate_action <- shiny::renderUI({
+      reason <- if (is.null(locked_protocol())) {
+        "Validation is disabled until a protocol is locked."
+      } else if (is.null(gold())) {
+        "Validation is disabled until the sealed gold set is created."
+      } else if (test_units() < 1L) {
+        "Validation is disabled because the sealed gold set has no test units."
+      } else if (!isTRUE(input$confirm_ledger)) {
+        "Validation is disabled until the ledger confirmation is checked."
+      } else if (identical(shared$mode(), "live") &&
+                 !shared$can_run()) {
+        "Validation is disabled until the provider API key is available."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("run_validate"),
+        "Validate locked protocol",
+        reason = reason
+      )
+    })
+
+    output$continue_validate_action <- shiny::renderUI({
+      reason <- if (is.null(validation())) {
+        "Continue is disabled until validation is complete."
+      } else if (!validation_matches_lock()) {
+        "Continue is disabled until the current locked protocol is validated."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("continue_validate"),
+        "Continue to corpus coding",
+        reason = reason,
+        class = "btn-outline-primary"
+      )
+    })
+
+    output$continue_corpus_action <- shiny::renderUI({
+      reason <- if (is.null(coded())) {
+        "Continue is disabled until the corpus is coded."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        session$ns("continue_corpus"),
+        "Continue to downloads",
+        reason = reason,
+        class = "btn-outline-primary"
+      )
     })
 
     run_tune <- function(confirmed = FALSE) {
@@ -750,6 +1016,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       }
 
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
+      reset_lock_state()
       tuning(out)
       tuning_timing(finish_call_timing(call_batches, started))
       add_result_usage(tibble::as_tibble(out), fallback_calls = planned)
@@ -855,6 +1122,12 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
         return()
       }
 
+      reset_validation_state()
+      shiny::updateCheckboxInput(
+        session,
+        "confirm_ledger",
+        value = FALSE
+      )
       locked_protocol(res$value)
       run_error(NULL)
     })
@@ -862,7 +1135,15 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     output$lock_status <- shiny::renderUI({
       shiny::req(locked_protocol())
       hash <- locked_protocol()$hash %||% "hash unavailable"
-      shiny::tags$p(class = "text-success", paste("LOCKED", hash))
+      label <- locked_protocol()$label %||% "Selected protocol"
+      shiny::tags$p(
+        class = "text-success fw-semibold",
+        sprintf(
+          "Protocol %s is locked. Short hash: %s.",
+          label,
+          substr(hash, 1L, 12L)
+        )
+      )
     })
 
     output$ledger_table <- DT::renderDT({
@@ -1105,7 +1386,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     })
 
     shiny::observeEvent(input$continue_validate, {
-      if (is.null(validation())) {
+      if (!validation_matches_lock()) {
         warn_user("Validate the locked protocol before continuing to corpus coding.")
         return()
       }
@@ -1144,7 +1425,12 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       }
 
       cols <- column_names_for_mapping(df)
-      shiny::selectInput(session$ns("corpus_text_col"), "Text column", choices = cols, selected = cols[[1]])
+      shiny::selectInput(
+        session$ns("corpus_text_col"),
+        "Text column",
+        choices = cols,
+        selected = guess_column(cols, "text")
+      )
     })
 
     output$corpus_preview <- DT::renderDT({
@@ -1225,7 +1511,11 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
 
     run_code_corpus <- function(confirmed = FALSE) {
       if (is.null(locked_protocol())) {
-        warn_user("Lock and validate a protocol before coding the corpus.")
+        warn_user("Lock a protocol before coding the corpus.")
+        return()
+      }
+      if (!validation_matches_lock()) {
+        warn_user("Validate the locked protocol before coding the corpus.")
         return()
       }
       if (is.null(corpus_raw())) {
@@ -1590,69 +1880,51 @@ coder_steps_ui <- function(ns) {
 }
 
 coder_step_action_ui <- function(ns, step, shared) {
-  disabled <- if (identical(shared$mode(), "live") && !shared$can_run()) {
-    "disabled"
-  } else {
-    NULL
-  }
   controls <- switch(
     as.character(step),
-    "1" = shiny::actionButton(
-      ns("save_codebook"), "Save and continue", class = "btn-primary"
-    ),
+    "1" = shiny::uiOutput(ns("save_codebook_action")),
     "2" = shiny::tagList(
-      shiny::actionButton(
-        ns("create_gold"), "Create sealed gold", class = "btn-primary"
-      ),
+      shiny::uiOutput(ns("create_gold_action")),
       help_tip(
         paste(
           "Sealing reserves the holdout for validation and records every use",
           "in its ledger."
         )
       ),
-      shiny::actionButton(
-        ns("continue_gold"), "Continue", class = "btn-outline-primary"
-      )
+      shiny::uiOutput(ns("continue_gold_action"))
     ),
-    "3" = shiny::actionButton(
-      ns("build_protocols"), "Build protocols", class = "btn-primary"
-    ),
+    "3" = shiny::uiOutput(ns("build_protocols_action")),
     "4" = shiny::tagList(
-      shiny::actionButton(
-        ns("run_tune"), "Run tuning", class = "btn-primary",
-        disabled = disabled
-      ),
-      shiny::actionButton(
-        ns("continue_tune"), "Continue to lock",
-        class = "btn-outline-primary"
-      )
+      shiny::uiOutput(ns("run_tune_action")),
+      shiny::uiOutput(ns("continue_tune_action"))
     ),
     "5" = shiny::tagList(
-      shiny::actionButton(
-        ns("lock_protocol"), "Lock selected protocol",
-        class = "btn-outline-primary"
-      ),
+      shiny::uiOutput(ns("lock_protocol_action")),
       help_tip(
         paste(
           "Locking hashes the codebook, prompt, model settings, parser,",
           "and replicate count."
         )
       ),
-      shiny::actionButton(
-        ns("run_validate"), "Validate locked protocol",
-        class = "btn-primary", disabled = disabled
+      shiny::tags$div(
+        class = "border rounded p-2",
+        shiny::checkboxInput(
+          ns("confirm_ledger"),
+          shiny::tagList(
+            "Confirm: record this validation in the sealed test-split ledger ",
+            help_tip(
+              "Each test-split evaluation is appended to the gold-set ledger."
+            )
+          ),
+          value = FALSE
+        ),
+        shiny::uiOutput(ns("run_validate_action"))
       ),
-      shiny::actionButton(
-        ns("continue_validate"), "Continue to corpus coding",
-        class = "btn-outline-primary"
-      )
+      shiny::uiOutput(ns("continue_validate_action"))
     ),
     "6" = shiny::tagList(
       shiny::uiOutput(ns("corpus_run_action")),
-      shiny::actionButton(
-        ns("continue_corpus"), "Continue to downloads",
-        class = "btn-outline-primary"
-      )
+      shiny::uiOutput(ns("continue_corpus_action"))
     ),
     "7" = shiny::downloadButton(
       ns("download_bundle"), "Download artifacts"
@@ -1809,16 +2081,6 @@ coder_validate_ui <- function(ns, shared = NULL, locked = NULL,
   shiny::tagList(
     shiny::uiOutput(ns("validate_context")),
     shiny::uiOutput(ns("lock_status")),
-    shiny::checkboxInput(
-      ns("confirm_ledger"),
-      shiny::tagList(
-        "Validation is ledgered against the sealed test split ",
-        help_tip(
-          "Each holdout evaluation is appended to the gold-set ledger."
-        )
-      ),
-      value = FALSE
-    ),
     shiny::uiOutput(ns("validation_status")),
     DT::DTOutput(ns("validation_table")),
     DT::DTOutput(ns("validation_categories")),

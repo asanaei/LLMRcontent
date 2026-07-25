@@ -154,7 +154,7 @@ mod_archive_server <- function(id, shared, artifacts = NULL,
             class = "form-text",
             "A results CSV must contain response_id for completeness checking."
           ),
-          shiny::actionButton(ns("build"), "Build archive", class = "btn-primary"),
+          shiny::uiOutput(ns("build_action")),
           shiny::tags$hr(),
           shiny::uiOutput(ns("results"))
         )
@@ -162,6 +162,19 @@ mod_archive_server <- function(id, shared, artifacts = NULL,
     })
 
     output$run_error <- shiny::renderUI(run_error())
+
+    output$build_action <- shiny::renderUI({
+      reason <- if (is.null(log_path())) {
+        "Archive building is disabled until a log file is selected."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        ns("build"),
+        "Build archive",
+        reason = reason
+      )
+    })
 
     output$carry_ui <- shiny::renderUI({
       if (!is.null(carried_results())) {

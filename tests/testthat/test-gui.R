@@ -37,6 +37,37 @@ test_that("call_gold_set_mapped maps columns into a sealed gold set", {
   expect_true(isTRUE(g$sealed))
 })
 
+test_that("demo gold defaults select text and label and retain a test split", {
+  skip_if_not_installed("LLMR.shiny")
+  path <- system.file(
+    "extdata",
+    "demo_gold.csv",
+    package = "LLMRcontent"
+  )
+  demo <- utils::read.csv(path, stringsAsFactors = FALSE)
+  cols <- LLMR.shiny::column_names_for_mapping(demo)
+  text_col <- LLMR.shiny::guess_column(cols, "text")
+  label_col <- LLMR.shiny::guess_column(
+    cols,
+    "label",
+    exclude = text_col
+  )
+
+  expect_identical(text_col, "text")
+  expect_identical(label_col, "label")
+
+  set.seed(110)
+  gold <- suppressWarnings(LLMRcontent:::call_gold_set_mapped(
+    demo,
+    text_col,
+    label_col,
+    split = c(dev = 0.6, test = 0.4),
+    stratify = TRUE,
+    seal_holdout = TRUE
+  ))
+  expect_gt(nrow(LLMRcontent::gold_split(gold, "test")), 0L)
+})
+
 test_that("the coder bundle writes a flat CSV and a generic report", {
   skip_if_not_installed("LLMR.shiny")
   gold <- fix_gold(8)
@@ -285,9 +316,14 @@ test_that("coding steps use one open drawer and keep run actions outside", {
   corpus_actions <- as.character(
     LLMRcontent:::coder_step_action_ui(ns, 6L, shared)
   )
-  expect_match(tune_actions, "coder-run_tune", fixed = TRUE)
-  expect_match(validation_actions, "coder-run_validate", fixed = TRUE)
+  expect_match(tune_actions, "coder-run_tune_action", fixed = TRUE)
+  expect_match(
+    validation_actions,
+    "coder-run_validate_action",
+    fixed = TRUE
+  )
   expect_match(corpus_actions, "coder-corpus_run_action", fixed = TRUE)
+  expect_match(validation_actions, "coder-confirm_ledger", fixed = TRUE)
 
   server_code <- paste(
     deparse(body(LLMRcontent:::mod_coder_server)),
@@ -303,6 +339,270 @@ test_that("coding steps use one open drawer and keep run actions outside", {
     server_code,
     fixed = TRUE
   ))
+})
+
+test_that("content action controls use disabled attributes and explain them", {
+  skip_if_not_installed("shiny")
+
+  disabled <- as.character(LLMRcontent:::.content_action_control(
+    "run",
+    "Run",
+    reason = "Run is disabled until data are loaded."
+  ))
+  enabled <- as.character(LLMRcontent:::.content_action_control(
+    "run",
+    "Run"
+  ))
+
+  expect_match(disabled, "disabled", fixed = TRUE)
+  expect_match(
+    disabled,
+    "Run is disabled until data are loaded.",
+    fixed = TRUE
+  )
+  expect_false(grepl("disabled", enabled, fixed = TRUE))
+})
+
+test_that("validation controls follow lock, ledger, and result state", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("DT")
+  skip_if_not_installed("LLMR.shiny")
+
+  shared <- list(
+    mode = shiny::reactive("demo"),
+    provider = shiny::reactive("groq"),
+    model = shiny::reactive(""),
+    temperature = shiny::reactive(0),
+    max_tokens = shiny::reactive(128L),
+    reasoning_effort = shiny::reactive("low"),
+    can_run = shiny::reactive(TRUE),
+    key = shiny::reactive(list()),
+    set_plan = function(...) NULL,
+    add_usage = function(...) NULL
+  )
+  test_gold <- fix_gold()
+  test_protocol <- protocol_lock(protocol(
+    fix_codebook(),
+    fix_config(),
+    label = "candidate_base"
+  ))
+  test_validation <- validate_protocol(
+    test_protocol,
+    test_gold,
+    .runner = fake_runner_perfect
+  )
+  alternate_protocol <- protocol(
+    fix_codebook(),
+    fix_config(),
+    prompt = paste(
+      "Use {codebook}.",
+      "Code {text}.",
+      "Return one label."
+    ),
+    label = "candidate_other"
+  )
+
+  shiny::testServer(
+    LLMRcontent:::mod_coder_server,
+    args = list(shared = shared, active = shiny::reactive("home")),
+    {
+      gold_raw(data.frame(text = "one", label = "a"))
+      session$setInputs(
+        gold_text_col = "text",
+        gold_label_col = "label",
+        dev_split = 60
+      )
+      session$flushReact()
+      create_html <- paste(
+        as.character(output$create_gold_action),
+        collapse = "\n"
+      )
+      expect_match(create_html, "disabled", fixed = TRUE)
+      expect_match(create_html, "at least two rows", fixed = TRUE)
+
+      gold(test_gold)
+      protocols(list(candidate_base = test_protocol))
+      session$setInputs(winner_protocol = "candidate_base")
+      session$flushReact()
+
+      lock_html <- paste(
+        as.character(output$lock_protocol_action),
+        collapse = "\n"
+      )
+      validate_html <- paste(
+        as.character(output$run_validate_action),
+        collapse = "\n"
+      )
+      continue_html <- paste(
+        as.character(output$continue_validate_action),
+        collapse = "\n"
+      )
+      expect_false(grepl("disabled", lock_html, fixed = TRUE))
+      expect_match(validate_html, "disabled", fixed = TRUE)
+      expect_match(
+        validate_html,
+        "until a protocol is locked",
+        fixed = TRUE
+      )
+      expect_match(continue_html, "disabled", fixed = TRUE)
+
+      locked_protocol(test_protocol)
+      session$setInputs(confirm_ledger = FALSE)
+      session$flushReact()
+      validate_html <- paste(
+        as.character(output$run_validate_action),
+        collapse = "\n"
+      )
+      expect_match(validate_html, "disabled", fixed = TRUE)
+      expect_match(
+        validate_html,
+        "ledger confirmation is checked",
+        fixed = TRUE
+      )
+      expect_match(
+        paste(as.character(output$lock_status), collapse = "\n"),
+        sprintf(
+          "Protocol candidate_base is locked. Short hash: %s.",
+          substr(test_protocol$hash, 1L, 12L)
+        ),
+        fixed = TRUE
+      )
+
+      session$setInputs(confirm_ledger = TRUE)
+      session$flushReact()
+      validate_html <- paste(
+        as.character(output$run_validate_action),
+        collapse = "\n"
+      )
+      expect_false(grepl("disabled", validate_html, fixed = TRUE))
+
+      validation(test_validation)
+      session$flushReact()
+      continue_html <- paste(
+        as.character(output$continue_validate_action),
+        collapse = "\n"
+      )
+      expect_false(grepl("disabled", continue_html, fixed = TRUE))
+
+      protocols(list(candidate_other = alternate_protocol))
+      session$setInputs(
+        winner_protocol = "candidate_other",
+        lock_protocol = 1
+      )
+      session$flushReact()
+      expect_identical(
+        locked_protocol()$label,
+        "candidate_other"
+      )
+      expect_null(validation())
+      continue_html <- paste(
+        as.character(output$continue_validate_action),
+        collapse = "\n"
+      )
+      expect_match(continue_html, "disabled", fixed = TRUE)
+
+      step(5L)
+      protocols(list(candidate_base = test_protocol))
+      locked_protocol(test_protocol)
+      validation(test_validation)
+      session$setInputs(load_demo_gold = 1)
+      session$flushReact()
+      expect_identical(step(), 2L)
+      expect_null(protocols())
+      expect_null(locked_protocol())
+      expect_null(validation())
+    }
+  )
+})
+
+test_that("audit and archive run actions follow loaded-input state", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("DT")
+  skip_if_not_installed("LLMR.shiny")
+
+  shared <- list(
+    mode = shiny::reactive("demo"),
+    provider = shiny::reactive("groq"),
+    model = shiny::reactive(""),
+    temperature = shiny::reactive(0),
+    max_tokens = shiny::reactive(128L),
+    reasoning_effort = shiny::reactive("low"),
+    can_run = shiny::reactive(TRUE),
+    key = shiny::reactive(list()),
+    set_plan = function(...) NULL,
+    add_usage = function(...) NULL
+  )
+
+  shiny::testServer(
+    LLMRcontent:::mod_valid_server,
+    args = list(shared = shared, active = shiny::reactive("home")),
+    {
+      session$flushReact()
+      action_html <- paste(
+        as.character(output$run_audit_action),
+        collapse = "\n"
+      )
+      expect_match(action_html, "disabled", fixed = TRUE)
+      expect_match(action_html, "until data are loaded", fixed = TRUE)
+
+      data_raw(data.frame(text = character()))
+      session$setInputs(
+        text_col = "text",
+        labels = "a, b",
+        estimand = "share",
+        target = "a",
+        prompt = "Classify {text}",
+        orders = "as_given",
+        temps = "0",
+        add_paraphrase = FALSE,
+        placebo_reps = 10,
+        placebo_seed = 110
+      )
+      session$flushReact()
+      action_html <- paste(
+        as.character(output$run_audit_action),
+        collapse = "\n"
+      )
+      expect_match(action_html, "disabled", fixed = TRUE)
+      expect_match(action_html, "at least one row", fixed = TRUE)
+
+      data_raw(data.frame(text = c("one", "two")))
+      session$flushReact()
+      action_html <- paste(
+        as.character(output$run_audit_action),
+        collapse = "\n"
+      )
+      expect_false(grepl("disabled", action_html, fixed = TRUE))
+    }
+  )
+
+  shiny::testServer(
+    LLMRcontent:::mod_archive_server,
+    args = list(shared = shared),
+    {
+      session$flushReact()
+      action_html <- paste(
+        as.character(output$build_action),
+        collapse = "\n"
+      )
+      expect_match(action_html, "disabled", fixed = TRUE)
+      expect_match(
+        action_html,
+        "until a log file is selected",
+        fixed = TRUE
+      )
+
+      log_path("audit.jsonl")
+      session$flushReact()
+      action_html <- paste(
+        as.character(output$build_action),
+        collapse = "\n"
+      )
+      expect_false(grepl("disabled", action_html, fixed = TRUE))
+    }
+  )
 })
 
 test_that("codebook wording starts visible and editable", {

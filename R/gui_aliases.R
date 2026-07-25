@@ -30,10 +30,27 @@ as_display_table         <- function(...) LLMR.shiny::as_display_table(...)
 read_csv_upload          <- function(...) LLMR.shiny::read_csv_upload(...)
 read_csv_path            <- function(...) LLMR.shiny::read_csv_path(...)
 column_names_for_mapping <- function(...) LLMR.shiny::column_names_for_mapping(...)
+guess_column             <- function(...) LLMR.shiny::guess_column(...)
 report_text              <- function(...) LLMR.shiny::report_text(...)
 diagnostics_table         <- function(...) LLMR.shiny::diagnostics_table(...)
 text_block_output         <- function(...) LLMR.shiny::text_block_output(...)
 help_tip                  <- function(...) LLMR.shiny::help_tip(...)
+
+.content_action_control <- function(input_id, label, reason = NULL,
+                                    class = "btn-primary") {
+  shiny::tags$div(
+    class = "d-flex flex-column align-items-start gap-1",
+    shiny::actionButton(
+      input_id,
+      label,
+      class = class,
+      disabled = !is.null(reason)
+    ),
+    if (!is.null(reason)) {
+      shiny::tags$p(class = "form-text mb-0", reason)
+    }
+  )
+}
 
 .content_id_columns <- function(data) {
   columns <- names(data)

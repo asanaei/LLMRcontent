@@ -37,3 +37,9 @@ Initial CRAN release.
   identifier columns remain available at the right, and audit cells and their
   unit-level trail are shown as separate tables. Studio tables now apply the
   shared display-only rounding to double columns.
+- Gold, corpus, and audit text mappings now prefer recognized column names;
+  the bundled gold data therefore start with `text` and `label` selected.
+- Primary run and continuation controls are disabled while their known
+  prerequisites are incomplete and show the requirement beside the control.
+  The validation step names the locked protocol and short hash and places its
+  ledger confirmation beside the validation action.

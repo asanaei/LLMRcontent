@@ -159,7 +159,7 @@ mod_valid_server <- function(id, shared, active = NULL) {
             )
           ),
           if (identical(shared$mode(), "demo")) demo_banner_ui(),
-          shiny::actionButton(ns("run_audit"), "Run audit", class = "btn-primary"),
+          shiny::uiOutput(ns("run_audit_action")),
           shiny::tags$hr(),
           shiny::uiOutput(ns("results"))
         )
@@ -170,9 +170,13 @@ mod_valid_server <- function(id, shared, active = NULL) {
 
     output$map_ui <- shiny::renderUI({
       df <- data_raw(); if (is.null(df)) return(NULL)
-      shiny::selectInput(ns("text_col"), "Text column",
-                         choices = column_names_for_mapping(df),
-                         selected = column_names_for_mapping(df)[[1]])
+      cols <- column_names_for_mapping(df)
+      shiny::selectInput(
+        ns("text_col"),
+        "Text column",
+        choices = cols,
+        selected = guess_column(cols, "text")
+      )
     })
 
     output$target_ui <- shiny::renderUI({
@@ -204,6 +208,49 @@ mod_valid_server <- function(id, shared, active = NULL) {
       x <- suppressWarnings(as.numeric(trimws(unlist(strsplit(input$temps %||% "0", ",")))))
       x[!is.na(x)]
     }
+
+    output$run_audit_action <- shiny::renderUI({
+      text_col <- input$text_col %||% ""
+      placebo_reps <- suppressWarnings(
+        as.integer(input$placebo_reps %||% NA_integer_)
+      )
+      placebo_seed <- suppressWarnings(
+        as.integer(input$placebo_seed %||% NA_integer_)
+      )
+      reason <- if (is.null(data_raw())) {
+        "The audit is disabled until data are loaded."
+      } else if (NROW(data_raw()) < 1L) {
+        "The audit is disabled until the data contain at least one row."
+      } else if (!nzchar(text_col) ||
+                 !text_col %in% names(data_raw())) {
+        "The audit is disabled until a text column is selected."
+      } else if (length(parse_labels()) < 2L) {
+        "The audit is disabled until at least two labels are entered."
+      } else if (!grepl("{text}", input$prompt %||% "", fixed = TRUE)) {
+        "The audit is disabled until the prompt contains {text}."
+      } else if (!length(input$orders %||% character())) {
+        "The audit is disabled until a label order is selected."
+      } else if (!length(parse_temps())) {
+        "The audit is disabled until a numeric temperature is entered."
+      } else if (is.na(placebo_reps) || placebo_reps < 1L) {
+        "The audit is disabled until a positive placebo repetition count is entered."
+      } else if (is.na(placebo_seed)) {
+        "The audit is disabled until a whole-number placebo seed is entered."
+      } else if (identical(shared$mode(), "live") &&
+                 !nzchar(trimws(shared$model() %||% ""))) {
+        "The audit is disabled until a model is entered."
+      } else if (identical(shared$mode(), "live") &&
+                 !shared$can_run()) {
+        "The audit is disabled until the provider API key is available."
+      } else {
+        NULL
+      }
+      .content_action_control(
+        ns("run_audit"),
+        "Run audit",
+        reason = reason
+      )
+    })
 
     planned_calls <- shiny::reactive({
       if (is.null(data_raw())) return(0L)
