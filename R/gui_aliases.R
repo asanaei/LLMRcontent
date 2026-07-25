@@ -35,6 +35,97 @@ diagnostics_table         <- function(...) LLMR.shiny::diagnostics_table(...)
 text_block_output         <- function(...) LLMR.shiny::text_block_output(...)
 help_tip                  <- function(...) LLMR.shiny::help_tip(...)
 
+.content_id_columns <- function(data) {
+  columns <- names(data)
+  columns[
+    grepl("(^id$|_id$|^id_|_hash$|^hash$)", columns, ignore.case = TRUE) |
+      tolower(columns) %in% c("cell", "call", "record")
+  ]
+}
+
+.content_text_columns <- function(data) {
+  columns <- names(data)
+  ids <- .content_id_columns(data)
+  setdiff(
+    columns[
+      grepl(
+        "(^|_)(text|content|message|prompt|definition|example|response)(_|$)",
+        columns,
+        ignore.case = TRUE
+      )
+    ],
+    ids
+  )
+}
+
+.content_prepare_table <- function(data, text = NULL, ids = NULL,
+                                   digits = 3L) {
+  data <- as.data.frame(
+    as_display_table(data, digits = digits),
+    check.names = FALSE
+  )
+  text <- intersect(text %||% .content_text_columns(data), names(data))
+  ids <- setdiff(
+    intersect(ids %||% .content_id_columns(data), names(data)),
+    text
+  )
+  if (length(ids)) {
+    data <- data[c(setdiff(names(data), ids), ids)]
+  }
+  list(data = data, text = text, ids = ids)
+}
+
+.content_datatable <- function(data, text = NULL, ids = NULL, digits = 3L,
+                               options = list(), rownames = FALSE, ...) {
+  prepared <- .content_prepare_table(
+    data,
+    text = text,
+    ids = ids,
+    digits = digits
+  )
+  text_targets <- match(prepared$text, names(prepared$data), nomatch = 0L)
+  text_targets <- text_targets[text_targets > 0L] - 1L
+  id_targets <- match(prepared$ids, names(prepared$data), nomatch = 0L)
+  id_targets <- id_targets[id_targets > 0L] - 1L
+
+  column_defs <- list()
+  if (length(text_targets)) {
+    column_defs[[length(column_defs) + 1L]] <- list(
+      targets = text_targets,
+      width = if (length(text_targets) == 1L) "60%" else "38%",
+      render = DT::JS("$.fn.dataTable.render.text()"),
+      createdCell = DT::JS(
+        paste0(
+          "function(td) {",
+          "$(td).css({'white-space':'normal',",
+          "'overflow-wrap':'break-word','word-break':'normal'});",
+          "}"
+        )
+      )
+    )
+  }
+  if (length(id_targets)) {
+    column_defs[[length(column_defs) + 1L]] <- list(
+      targets = id_targets,
+      width = "9%"
+    )
+  }
+
+  existing_defs <- options$columnDefs %||% list()
+  options$columnDefs <- c(existing_defs, column_defs)
+  options <- utils::modifyList(
+    list(autoWidth = TRUE, scrollX = TRUE, pageLength = 5),
+    options
+  )
+
+  DT::datatable(
+    prepared$data,
+    options = options,
+    rownames = rownames,
+    ...
+  )
+}
+
 # Live runs above this planned API-call count require explicit confirmation.
 .content_large_run_threshold <- 100L
 

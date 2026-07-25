@@ -1,5 +1,5 @@
 # mod_coder.R ------------------------------------------------------------------
-# The LLMRcontent coding workflow as an eight-step stepper: codebook, gold set, config,
+# The LLMRcontent coding workflow as a seven-step stepper: codebook, gold set, config,
 # tune, validate, code corpus, download. Each step wraps the LLMRcontent coding API and
 # routes failures through safe_llmr_call() so a missing key or package shows a
 # banner rather than crashing the app.
@@ -114,7 +114,8 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
         bslib::card_header(shiny::uiOutput(session$ns("step_header"))),
         bslib::card_body(
           shiny::uiOutput(session$ns("run_error")),
-          shiny::uiOutput(session$ns("step_body"))
+          shiny::uiOutput(session$ns("step_body")),
+          shiny::uiOutput(session$ns("step_action"))
         )
       )
     })
@@ -183,24 +184,89 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     })
 
     output$step_body <- shiny::renderUI({
-      switch(
-        as.character(step()),
-        "1" = coder_codebook_ui(session$ns),
-        "2" = coder_gold_ui(session$ns),
-        "3" = coder_config_ui(session$ns, shared),
-        "4" = coder_tune_ui(
-          session$ns, shared, protocols(), tuning(), tuning_timing()
-        ),
-        "5" = coder_validate_ui(
-          session$ns, shared, locked_protocol(), validation(),
-          validation_timing()
-        ),
-        "6" = coder_corpus_ui(
-          session$ns, shared, corpus_raw(), coded(), coding_timing(),
-          archive_available = archive_replay_available()
-        ),
-        "7" = coder_download_ui(session$ns, coded(), validation()),
-        coder_codebook_ui(session$ns)
+      coder_steps_ui(session$ns)
+    })
+
+    output$step_action <- shiny::renderUI({
+      coder_step_action_ui(session$ns, step(), shared)
+    })
+
+    shiny::observeEvent(step(), {
+      bslib::accordion_panel_set(
+        "coding_steps",
+        values = as.character(step()),
+        session = session
+      )
+    }, ignoreInit = TRUE)
+
+    output$protocol_context <- shiny::renderUI({
+      key_ui <- if (identical(shared$mode(), "live") && !shared$can_run()) {
+        live_run_blocker_ui(shared$key())
+      } else {
+        NULL
+      }
+      config_summary <- if (identical(shared$mode(), "demo")) {
+        shiny::tags$p(
+          class = "text-muted",
+          "Bundled deterministic demo. No model, API key, or API calls."
+        )
+      } else {
+        shiny::tags$dl(
+          class = "row",
+          shiny::tags$dt(class = "col-sm-2", "Provider"),
+          shiny::tags$dd(class = "col-sm-10", shared$provider()),
+          shiny::tags$dt(class = "col-sm-2", "Model"),
+          shiny::tags$dd(class = "col-sm-10", shared$model()),
+          shiny::tags$dt(class = "col-sm-2", "Mode"),
+          shiny::tags$dd(class = "col-sm-10", "Live")
+        )
+      }
+      shiny::tagList(key_ui, config_summary)
+    })
+
+    output$tune_context <- shiny::renderUI({
+      shiny::tagList(
+        if (identical(shared$mode(), "live") && !shared$can_run()) {
+          live_run_blocker_ui(shared$key())
+        },
+        if (identical(shared$mode(), "demo")) demo_banner_ui()
+      )
+    })
+
+    output$validate_context <- shiny::renderUI({
+      shiny::tagList(
+        if (identical(shared$mode(), "live") && !shared$can_run()) {
+          live_run_blocker_ui(shared$key())
+        },
+        if (identical(shared$mode(), "demo")) demo_banner_ui()
+      )
+    })
+
+    output$protocol_candidates_status <- shiny::renderUI({
+      shiny::tags$p(
+        paste0("Protocol candidates: ", length(protocols() %||% list()))
+      )
+    })
+
+    output$archive_replay_choice <- shiny::renderUI({
+      if (!archive_replay_available()) return(NULL)
+      bslib::card(
+        class = "border-info",
+        bslib::card_body(
+          shiny::checkboxInput(
+            session$ns("use_built_archive"),
+            shiny::tagList(
+              "Use the archive held in the Archive tab for offline replay ",
+              help_tip(
+                paste(
+                  "Replay succeeds only when the protocol configuration and",
+                  "rendered requests match archived calls."
+                )
+              )
+            ),
+            value = FALSE
+          )
+        )
       )
     })
 
@@ -409,7 +475,12 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
           "Upload a gold CSV or load the demo gold data to preview it."
         )
       )
-      DT::datatable(utils::head(df, 20), options = list(scrollX = TRUE, pageLength = 5))
+      .content_datatable(
+        utils::head(df, 20),
+        text = input$gold_text_col %||% names(df)[[1]],
+        rownames = FALSE,
+        options = list(pageLength = 5)
+      )
     })
 
     gold_size_result <- shiny::reactive({
@@ -434,9 +505,9 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     output$gold_size_table <- DT::renderDT({
       result <- gold_size_result()
       candidates <- as.data.frame(result$candidates)
-      candidates$mean_ci_width <- round(candidates$mean_ci_width, 3)
-      DT::datatable(
+      .content_datatable(
         candidates,
+        digits = 3,
         caption = "Candidate gold-set sizes",
         rownames = FALSE,
         options = list(dom = "t", pageLength = nrow(candidates))
@@ -698,9 +769,11 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       shiny::validate(
         shiny::need(!is.null(tuning()), "Run tuning to compare the protocol candidates.")
       )
-      DT::datatable(
-        as_display_table(tibble::as_tibble(tuning())),
+      .content_datatable(
+        tibble::as_tibble(tuning()),
+        digits = 3,
         caption = "Development-split performance used for protocol tuning",
+        rownames = FALSE,
         options = list(scrollX = TRUE, pageLength = 5)
       )
     })
@@ -795,7 +868,12 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     output$ledger_table <- DT::renderDT({
       shiny::req(gold())
       ledger <- LLMRcontent::gold_ledger(gold())
-      DT::datatable(as_display_table(ledger), options = list(scrollX = TRUE, pageLength = 5))
+      .content_datatable(
+        ledger,
+        digits = 3,
+        rownames = FALSE,
+        options = list(pageLength = 5)
+      )
     })
 
     run_validate <- function(confirmed = FALSE) {
@@ -890,8 +968,9 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
           "Validate the locked protocol to see validation results."
         )
       )
-      DT::datatable(
-        as_display_table(diagnostics_table(validation())),
+      .content_datatable(
+        diagnostics_table(validation()),
+        digits = 3,
         caption = "Holdout validation summary",
         rownames = FALSE,
         options = list(scrollX = TRUE, dom = "t")
@@ -920,8 +999,9 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
     output$validation_categories <- DT::renderDT({
       value <- validation()
       shiny::req(value)
-      DT::datatable(
-        as_display_table(value$per_category),
+      .content_datatable(
+        value$per_category,
+        digits = 3,
         caption = "Validation by category",
         rownames = FALSE,
         options = list(scrollX = TRUE, dom = "t")
@@ -933,7 +1013,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       shiny::req(value)
       table <- as.data.frame.matrix(value$confusion)
       table <- cbind(truth = rownames(table), table, row.names = NULL)
-      DT::datatable(
+      .content_datatable(
         table,
         caption = "Confusion matrix",
         rownames = FALSE,
@@ -1074,7 +1154,13 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
           "Upload a corpus CSV or load the demo corpus to preview it."
         )
       )
-      DT::datatable(utils::head(corpus_raw(), 20), options = list(scrollX = TRUE, pageLength = 5))
+      value <- corpus_raw()
+      .content_datatable(
+        utils::head(value, 20),
+        text = input$corpus_text_col %||% names(value)[[1]],
+        rownames = FALSE,
+        options = list(pageLength = 5)
+      )
     })
 
     shiny::observe({
@@ -1268,8 +1354,14 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       shiny::validate(
         shiny::need(!is.null(coded()), "Code the corpus to preview coded rows.")
       )
-      DT::datatable(as_display_table(tibble::as_tibble(coded())),
-                    options = list(scrollX = TRUE, pageLength = 5))
+      value <- coded()
+      .content_datatable(
+        tibble::as_tibble(value),
+        text = value$text,
+        digits = 3,
+        rownames = FALSE,
+        options = list(pageLength = 5)
+      )
     })
 
     output$coded_status <- shiny::renderUI({
@@ -1295,8 +1387,9 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       counts <- as.data.frame(table(label = labels, useNA = "ifany"))
       names(counts)[2] <- "n"
       counts$share <- counts$n / sum(counts$n)
-      DT::datatable(
+      .content_datatable(
         counts,
+        digits = 3,
         caption = "Coded-label distribution",
         rownames = FALSE,
         options = list(dom = "t")
@@ -1310,9 +1403,11 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
           "Code the corpus to estimate gold-corrected category prevalences."
         )
       )
-      DT::datatable(
-        as_display_table(tibble::as_tibble(corrected())),
+      .content_datatable(
+        tibble::as_tibble(corrected()),
+        digits = 3,
         caption = "Gold-corrected category prevalences",
+        rownames = FALSE,
         options = list(scrollX = TRUE, pageLength = 5)
       )
     })
@@ -1451,6 +1546,128 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
   })
 }
 
+coder_steps_ui <- function(ns) {
+  bslib::accordion(
+    id = ns("coding_steps"),
+    open = "1",
+    multiple = FALSE,
+    bslib::accordion_panel(
+      "1 Codebook",
+      coder_codebook_ui(ns),
+      value = "1"
+    ),
+    bslib::accordion_panel(
+      "2 Gold",
+      coder_gold_ui(ns),
+      value = "2"
+    ),
+    bslib::accordion_panel(
+      "3 Config",
+      coder_config_ui(ns),
+      value = "3"
+    ),
+    bslib::accordion_panel(
+      "4 Tune",
+      coder_tune_ui(ns),
+      value = "4"
+    ),
+    bslib::accordion_panel(
+      "5 Validate",
+      coder_validate_ui(ns),
+      value = "5"
+    ),
+    bslib::accordion_panel(
+      "6 Code",
+      coder_corpus_ui(ns),
+      value = "6"
+    ),
+    bslib::accordion_panel(
+      "7 Download",
+      coder_download_ui(ns),
+      value = "7"
+    )
+  )
+}
+
+coder_step_action_ui <- function(ns, step, shared) {
+  disabled <- if (identical(shared$mode(), "live") && !shared$can_run()) {
+    "disabled"
+  } else {
+    NULL
+  }
+  controls <- switch(
+    as.character(step),
+    "1" = shiny::actionButton(
+      ns("save_codebook"), "Save and continue", class = "btn-primary"
+    ),
+    "2" = shiny::tagList(
+      shiny::actionButton(
+        ns("create_gold"), "Create sealed gold", class = "btn-primary"
+      ),
+      help_tip(
+        paste(
+          "Sealing reserves the holdout for validation and records every use",
+          "in its ledger."
+        )
+      ),
+      shiny::actionButton(
+        ns("continue_gold"), "Continue", class = "btn-outline-primary"
+      )
+    ),
+    "3" = shiny::actionButton(
+      ns("build_protocols"), "Build protocols", class = "btn-primary"
+    ),
+    "4" = shiny::tagList(
+      shiny::actionButton(
+        ns("run_tune"), "Run tuning", class = "btn-primary",
+        disabled = disabled
+      ),
+      shiny::actionButton(
+        ns("continue_tune"), "Continue to lock",
+        class = "btn-outline-primary"
+      )
+    ),
+    "5" = shiny::tagList(
+      shiny::actionButton(
+        ns("lock_protocol"), "Lock selected protocol",
+        class = "btn-outline-primary"
+      ),
+      help_tip(
+        paste(
+          "Locking hashes the codebook, prompt, model settings, parser,",
+          "and replicate count."
+        )
+      ),
+      shiny::actionButton(
+        ns("run_validate"), "Validate locked protocol",
+        class = "btn-primary", disabled = disabled
+      ),
+      shiny::actionButton(
+        ns("continue_validate"), "Continue to corpus coding",
+        class = "btn-outline-primary"
+      )
+    ),
+    "6" = shiny::tagList(
+      shiny::uiOutput(ns("corpus_run_action")),
+      shiny::actionButton(
+        ns("continue_corpus"), "Continue to downloads",
+        class = "btn-outline-primary"
+      )
+    ),
+    "7" = shiny::downloadButton(
+      ns("download_bundle"), "Download artifacts"
+    ),
+    NULL
+  )
+  shiny::tags$div(
+    class = paste(
+      "d-flex flex-wrap align-items-center gap-2 mt-3 pt-3",
+      "border-top"
+    ),
+    controls
+  )
+}
+
 coder_codebook_ui <- function(ns) {
   shiny::tagList(
     shiny::fluidRow(
@@ -1476,8 +1693,7 @@ coder_codebook_ui <- function(ns) {
         text_block_output(ns("codebook_preview"), height = "20rem"),
         shiny::textOutput(ns("codebook_hash"))
       )
-    ),
-    shiny::actionButton(ns("save_codebook"), "Save and continue", class = "btn-primary")
+    )
   )
 }
 
@@ -1490,7 +1706,7 @@ coder_gold_ui <- function(ns) {
     shiny::uiOutput(ns("gold_map_ui")),
     shiny::fluidRow(
       shiny::column(
-        3,
+        4,
         shiny::numericInput(
           ns("dev_split"),
           shiny::tagList(
@@ -1502,18 +1718,14 @@ coder_gold_ui <- function(ns) {
           value = 60, min = 10, max = 90, step = 5
         )
       ),
-      shiny::column(3, shiny::checkboxInput(ns("stratify_gold"), "Stratify", value = TRUE)),
-      shiny::column(3, shiny::numericInput(ns("gold_seed"), "Seed", value = 110, min = 1, step = 1)),
       shiny::column(
-        3,
-        shiny::tags$div(
-          class = "d-flex align-items-center gap-2 mt-4",
-          shiny::actionButton(
-            ns("create_gold"), "Create sealed gold", class = "btn-primary"
-          ),
-          help_tip(
-            "Sealing reserves the holdout for validation and records every use in its ledger."
-          )
+        4,
+        shiny::checkboxInput(ns("stratify_gold"), "Stratify", value = TRUE)
+      ),
+      shiny::column(
+        4,
+        shiny::numericInput(
+          ns("gold_seed"), "Seed", value = 110, min = 1, step = 1
         )
       )
     ),
@@ -1523,48 +1735,22 @@ coder_gold_ui <- function(ns) {
     ),
     shiny::uiOutput(ns("gold_size_status")),
     DT::DTOutput(ns("gold_size_table")),
-    bslib::accordion(
-      bslib::accordion_panel(
-        "Technical details",
-        text_block_output(ns("gold_size_helper"), height = "10rem")
-      ),
-      open = FALSE
+    shiny::tags$details(
+      class = "mb-3",
+      shiny::tags$summary("Technical details"),
+      text_block_output(ns("gold_size_helper"), height = "10rem")
     ),
     shiny::uiOutput(ns("gold_status")),
-    DT::DTOutput(ns("gold_preview")),
-    shiny::actionButton(ns("continue_gold"), "Continue", class = "btn-primary")
+    DT::DTOutput(ns("gold_preview"))
   )
 }
 
-coder_config_ui <- function(ns, shared) {
-  key_ui <- if (identical(shared$mode(), "live") && !shared$can_run()) {
-    live_run_blocker_ui(shared$key())
-  } else {
-    NULL
-  }
-  config_summary <- if (identical(shared$mode(), "demo")) {
-    shiny::tags$p(
-      class = "text-muted",
-      "Bundled deterministic demo. No model, API key, or API calls."
-    )
-  } else {
-    shiny::tags$dl(
-      class = "row",
-      shiny::tags$dt(class = "col-sm-2", "Provider"),
-      shiny::tags$dd(class = "col-sm-10", shared$provider()),
-      shiny::tags$dt(class = "col-sm-2", "Model"),
-      shiny::tags$dd(class = "col-sm-10", shared$model()),
-      shiny::tags$dt(class = "col-sm-2", "Mode"),
-      shiny::tags$dd(class = "col-sm-10", "Live")
-    )
-  }
-
+coder_config_ui <- function(ns, shared = NULL) {
   shiny::tagList(
-    key_ui,
-    config_summary,
+    shiny::uiOutput(ns("protocol_context")),
     shiny::textAreaInput(
       ns("prompt_template"),
-      "Prompt template",
+      "Coding prompt template",
       value = paste(
         "Use this codebook:",
         "{codebook}",
@@ -1594,8 +1780,7 @@ coder_config_ui <- function(ns, shared) {
       ),
       value = 1, min = 1, max = 10, step = 1
     ),
-    shiny::uiOutput(ns("protocol_scale_preview")),
-    shiny::actionButton(ns("build_protocols"), "Build protocols", class = "btn-primary")
+    shiny::uiOutput(ns("protocol_scale_preview"))
   )
 }
 
@@ -1608,36 +1793,21 @@ prompt_variant <- function(prompt, variant) {
   )
 }
 
-coder_tune_ui <- function(ns, shared, protocols, tuning, timing = NULL) {
-  disabled <- if (identical(shared$mode(), "live") && !shared$can_run()) "disabled" else NULL
-
+coder_tune_ui <- function(ns, shared = NULL, protocols = NULL, tuning = NULL,
+                          timing = NULL) {
   shiny::tagList(
-    if (identical(shared$mode(), "live") && !shared$can_run()) live_run_blocker_ui(shared$key()),
-    if (identical(shared$mode(), "demo")) demo_banner_ui(),
-    shiny::tags$p(paste0("Protocol candidates: ", length(protocols %||% list()))),
-    shiny::actionButton(ns("run_tune"), "Run tuning", class = "btn-primary", disabled = disabled),
+    shiny::uiOutput(ns("tune_context")),
+    shiny::uiOutput(ns("protocol_candidates_status")),
     DT::DTOutput(ns("tune_table")),
     shiny::uiOutput(ns("tune_timing_ui")),
-    shiny::uiOutput(ns("winner_ui")),
-    shiny::actionButton(ns("continue_tune"), "Continue to lock", class = "btn-primary")
+    shiny::uiOutput(ns("winner_ui"))
   )
 }
 
-coder_validate_ui <- function(ns, shared, locked, validation, timing = NULL) {
-  disabled <- if (identical(shared$mode(), "live") && !shared$can_run()) "disabled" else NULL
-
+coder_validate_ui <- function(ns, shared = NULL, locked = NULL,
+                              validation = NULL, timing = NULL) {
   shiny::tagList(
-    if (identical(shared$mode(), "live") && !shared$can_run()) live_run_blocker_ui(shared$key()),
-    if (identical(shared$mode(), "demo")) demo_banner_ui(),
-    shiny::tags$div(
-      class = "d-flex align-items-center gap-2",
-      shiny::actionButton(
-        ns("lock_protocol"), "Lock selected protocol", class = "btn-primary"
-      ),
-      help_tip(
-        "Locking hashes the codebook, prompt, model settings, parser, and replicate count."
-      )
-    ),
+    shiny::uiOutput(ns("validate_context")),
     shiny::uiOutput(ns("lock_status")),
     shiny::checkboxInput(
       ns("confirm_ledger"),
@@ -1649,7 +1819,6 @@ coder_validate_ui <- function(ns, shared, locked, validation, timing = NULL) {
       ),
       value = FALSE
     ),
-    shiny::actionButton(ns("run_validate"), "Validate locked protocol", class = "btn-primary", disabled = disabled),
     shiny::uiOutput(ns("validation_status")),
     DT::DTOutput(ns("validation_table")),
     DT::DTOutput(ns("validation_categories")),
@@ -1658,22 +1827,19 @@ coder_validate_ui <- function(ns, shared, locked, validation, timing = NULL) {
     shiny::uiOutput(ns("validation_plot_ui")),
     shiny::tags$h4("Gold ledger"),
     DT::DTOutput(ns("ledger_table")),
-    bslib::accordion(
-      bslib::accordion_panel(
-        "Technical details",
-        shiny::tags$h5("Methods report"),
-        text_block_output(ns("validation_report"), height = "20rem"),
-        shiny::tags$h5("Console summary"),
-        text_block_output(ns("validation_raw"), height = "10rem")
-      ),
-      open = FALSE
-    ),
-    shiny::actionButton(ns("continue_validate"), "Continue to corpus coding", class = "btn-primary")
+    shiny::tags$details(
+      class = "mb-3",
+      shiny::tags$summary("Technical details"),
+      shiny::tags$h5("Methods report"),
+      text_block_output(ns("validation_report"), height = "20rem"),
+      shiny::tags$h5("Console summary"),
+      text_block_output(ns("validation_raw"), height = "10rem")
+    )
   )
 }
 
-coder_corpus_ui <- function(ns, shared, corpus, coded, timing = NULL,
-                            archive_available = FALSE) {
+coder_corpus_ui <- function(ns, shared = NULL, corpus = NULL, coded = NULL,
+                            timing = NULL, archive_available = FALSE) {
   shiny::tagList(
     shiny::uiOutput(ns("corpus_run_context")),
     shiny::fluidRow(
@@ -1681,53 +1847,32 @@ coder_corpus_ui <- function(ns, shared, corpus, coded, timing = NULL,
       shiny::column(6, shiny::actionButton(ns("load_demo_corpus"), "Load demo corpus"))
     ),
     shiny::uiOutput(ns("corpus_map_ui")),
-    if (isTRUE(archive_available)) {
-      bslib::card(
-        class = "border-info",
-        bslib::card_body(
-          shiny::checkboxInput(
-            ns("use_built_archive"),
-            shiny::tagList(
-              "Use the archive held in the Archive tab for offline replay ",
-              help_tip(
-                "Replay succeeds only when the protocol configuration and rendered requests match archived calls."
-              )
-            ),
-            value = FALSE
-          )
-        )
-      )
-    },
+    shiny::uiOutput(ns("archive_replay_choice")),
     # Replicates are fixed by the locked protocol, not chosen here, so there is
     # no corpus-replicates control; the cost estimate reads protocol$replicates.
     shiny::numericInput(ns("correction_conf"), "Correction confidence", value = 0.95, min = 0.5, max = 0.99, step = 0.01),
     DT::DTOutput(ns("corpus_preview")),
-    shiny::uiOutput(ns("corpus_run_action")),
     shiny::uiOutput(ns("correction_warnings")),
     shiny::uiOutput(ns("coded_status")),
     DT::DTOutput(ns("coded_distribution")),
     DT::DTOutput(ns("coded_preview")),
     DT::DTOutput(ns("correction_table")),
     shiny::uiOutput(ns("coding_timing_ui")),
-    bslib::accordion(
-      bslib::accordion_panel(
-        "Technical details",
-        shiny::tags$h5("Methods report"),
-        text_block_output(ns("coding_report"), height = "20rem"),
-        shiny::tags$h5("Console summaries"),
-        text_block_output(ns("coding_raw"), height = "12rem")
-      ),
-      open = FALSE
-    ),
-    shiny::actionButton(ns("continue_corpus"), "Continue to downloads", class = "btn-primary")
+    shiny::tags$details(
+      class = "mb-3",
+      shiny::tags$summary("Technical details"),
+      shiny::tags$h5("Methods report"),
+      text_block_output(ns("coding_report"), height = "20rem"),
+      shiny::tags$h5("Console summaries"),
+      text_block_output(ns("coding_raw"), height = "12rem")
+    )
   )
 }
 
-coder_download_ui <- function(ns, coded, validation) {
+coder_download_ui <- function(ns, coded = NULL, validation = NULL) {
   shiny::tagList(
     shiny::uiOutput(ns("download_summary")),
     shiny::tags$h4("Methods report"),
-    text_block_output(ns("download_report"), height = "20rem"),
-    shiny::downloadButton(ns("download_bundle"), "Download artifacts")
+    text_block_output(ns("download_report"), height = "20rem")
   )
 }

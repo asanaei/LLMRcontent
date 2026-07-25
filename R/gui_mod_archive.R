@@ -316,8 +316,9 @@ mod_archive_server <- function(id, shared, artifacts = NULL,
     output$diagnostics <- DT::renderDT({
       value <- current_archive()
       shiny::req(value)
-      DT::datatable(
-        as_display_table(diagnostics_table(value)),
+      .content_datatable(
+        diagnostics_table(value),
+        digits = 3,
         caption = "Archive diagnostics",
         rownames = FALSE,
         options = list(scrollX = TRUE, dom = "t")
@@ -358,8 +359,12 @@ mod_archive_server <- function(id, shared, artifacts = NULL,
 
     output$manifest <- DT::renderDT({
       shiny::req(current_archive())
-      DT::datatable(as_display_table(current_archive()$manifest),
-                    options = list(scrollX = TRUE, pageLength = 5))
+      .content_datatable(
+        current_archive()$manifest,
+        digits = 3,
+        rownames = FALSE,
+        options = list(pageLength = 5)
+      )
     })
 
     output$check_status <- shiny::renderUI({
@@ -403,14 +408,19 @@ mod_archive_server <- function(id, shared, artifacts = NULL,
         matched = result$n_matched,
         stringsAsFactors = FALSE
       )
-      DT::datatable(table, rownames = FALSE, options = list(dom = "t"))
+      .content_datatable(
+        table,
+        rownames = FALSE,
+        options = list(dom = "t")
+      )
     })
 
     output$horizon_table <- DT::renderDT({
       result <- horizon_result()
       shiny::req(result, !inherits(result, "error"))
-      DT::datatable(
-        as_display_table(result),
+      .content_datatable(
+        result,
+        digits = 3,
         rownames = FALSE,
         options = list(scrollX = TRUE, dom = "t")
       )

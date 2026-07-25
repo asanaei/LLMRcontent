@@ -164,6 +164,9 @@ test_that("the demo audit records result rows without API calls", {
       expect_equal(config$model_params$temperature, 0.7)
       expect_equal(config$model_params$max_tokens, 128L)
       expect_equal(config$model_params$reasoning_effort, "low")
+      unit_table <- LLMRcontent:::.content_audit_units_table(audit())
+      expect_true(all(c("text", "cell", "unit_id") %in% names(unit_table)))
+      expect_true(all(nzchar(unit_table$text)))
     }
   )
 
@@ -223,6 +226,10 @@ test_that("the content UI uses non-fillable pages and shared generation controls
     LLMRcontent:::coder_config_ui(shiny::NS("coder"), shared)
   )
   expect_match(config_html, "coder-protocol_replicates", fixed = TRUE)
+  expect_match(config_html, "Coding prompt template", fixed = TRUE)
+  expect_match(config_html, "Use this codebook:", fixed = TRUE)
+  expect_match(config_html, "{codebook}", fixed = TRUE)
+  expect_match(config_html, "{text}", fixed = TRUE)
   expect_false(grepl("coder-temperature", config_html, fixed = TRUE))
 
   gold_html <- as.character(
@@ -230,6 +237,153 @@ test_that("the content UI uses non-fillable pages and shared generation controls
   )
   expect_match(gold_html, "llmr-text-block", fixed = TRUE)
   expect_match(gold_html, "circle-info", fixed = TRUE)
+})
+
+test_that("coding steps use one open drawer and keep run actions outside", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("DT")
+  skip_if_not_installed("LLMR.shiny")
+
+  ns <- shiny::NS("coder")
+  steps_html <- paste(
+    as.character(LLMRcontent:::coder_steps_ui(ns)),
+    collapse = "\n"
+  )
+  expect_true(all(vapply(
+    1:7,
+    function(value) {
+      grepl(
+        sprintf('data-value="%d"', value),
+        steps_html,
+        fixed = TRUE
+      )
+    },
+    logical(1)
+  )))
+  expect_equal(
+    lengths(regmatches(
+      steps_html,
+      gregexpr('aria-expanded="true"', steps_html, fixed = TRUE)
+    )),
+    1L
+  )
+  expect_false(grepl("coder-run_tune", steps_html, fixed = TRUE))
+  expect_false(grepl("coder-run_validate", steps_html, fixed = TRUE))
+  expect_false(grepl("coder-run_code_corpus", steps_html, fixed = TRUE))
+
+  shared <- list(
+    mode = function() "demo",
+    can_run = function() TRUE
+  )
+  tune_actions <- as.character(
+    LLMRcontent:::coder_step_action_ui(ns, 4L, shared)
+  )
+  validation_actions <- as.character(
+    LLMRcontent:::coder_step_action_ui(ns, 5L, shared)
+  )
+  corpus_actions <- as.character(
+    LLMRcontent:::coder_step_action_ui(ns, 6L, shared)
+  )
+  expect_match(tune_actions, "coder-run_tune", fixed = TRUE)
+  expect_match(validation_actions, "coder-run_validate", fixed = TRUE)
+  expect_match(corpus_actions, "coder-corpus_run_action", fixed = TRUE)
+
+  server_code <- paste(
+    deparse(body(LLMRcontent:::mod_coder_server)),
+    collapse = "\n"
+  )
+  expect_match(
+    server_code,
+    'accordion_panel_set("coding_steps"',
+    fixed = TRUE
+  )
+  expect_false(grepl(
+    'accordion_panel_set(session$ns("coding_steps")',
+    server_code,
+    fixed = TRUE
+  ))
+})
+
+test_that("codebook wording starts visible and editable", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("DT")
+  skip_if_not_installed("LLMR.shiny")
+
+  shared <- list(
+    mode = shiny::reactive("demo"),
+    provider = shiny::reactive("groq"),
+    model = shiny::reactive(""),
+    temperature = shiny::reactive(0),
+    max_tokens = shiny::reactive(128L),
+    reasoning_effort = shiny::reactive("low"),
+    can_run = shiny::reactive(TRUE),
+    key = shiny::reactive(list()),
+    set_plan = function(...) NULL,
+    add_usage = function(...) NULL
+  )
+
+  shiny::testServer(
+    LLMRcontent:::mod_coder_server,
+    args = list(shared = shared, active = shiny::reactive("home")),
+    {
+      session$flushReact()
+      editor_html <- paste(
+        as.character(output$category_editor),
+        collapse = "\n"
+      )
+      expect_match(editor_html, "cat_definition_1", fixed = TRUE)
+      expect_match(
+        editor_html,
+        "Mentions formal rules, rights, government, or public policy.",
+        fixed = TRUE
+      )
+      expect_match(editor_html, "cat_examples_2", fixed = TRUE)
+      expect_true(all(nzchar(categories()$definition)))
+    }
+  )
+})
+
+test_that("display tables round doubles, widen text, and retain ids at right", {
+  skip_if_not_installed("DT")
+  skip_if_not_installed("LLMR.shiny")
+
+  input <- data.frame(
+    response_id = c("r1", "r2"),
+    text = c("A full sentence remains readable.", "<script>x</script>"),
+    estimate = c(0.1234567, 12.34567),
+    n = 1:2,
+    stringsAsFactors = FALSE
+  )
+  original <- input$estimate
+  prepared <- LLMRcontent:::.content_prepare_table(
+    input,
+    text = "text",
+    digits = 3
+  )
+
+  expect_identical(tail(names(prepared$data), 1), "response_id")
+  expect_equal(prepared$data$estimate, signif(original, 3))
+  expect_type(prepared$data$n, "integer")
+  expect_equal(input$estimate, original)
+
+  widget <- LLMRcontent:::.content_datatable(
+    input,
+    text = "text",
+    digits = 3
+  )
+  expect_true(widget$x$options$autoWidth)
+  text_def <- Filter(
+    function(definition) identical(definition$width, "60%"),
+    widget$x$options$columnDefs
+  )[[1]]
+  expect_match(as.character(text_def$render), "render.text", fixed = TRUE)
+  expect_match(
+    as.character(text_def$createdCell),
+    "white-space':'normal",
+    fixed = TRUE
+  )
 })
 
 test_that("GUI timing summaries use only recorded runner durations", {

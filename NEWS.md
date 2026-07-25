@@ -30,3 +30,10 @@ Initial CRAN release.
   completeness checks, and a built archive can be used for offline corpus
   replay. Long text outputs no longer collapse inside fillable navigation
   pages. Recorded call durations are summarized when the runner supplies them.
+- The coding workflow now places its seven configuration stages in collapsible
+  drawers while keeping the action for the active stage outside the drawer.
+  Its existing pre-filled coding prompt and category wording remain visible
+  and editable. Coded units and audited units use wide, wrapping text columns,
+  identifier columns remain available at the right, and audit cells and their
+  unit-level trail are shown as separate tables. Studio tables now apply the
+  shared display-only rounding to double columns.

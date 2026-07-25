@@ -60,6 +60,16 @@ valid_progress_runner <- function(runner) {
   }
 }
 
+.content_audit_units_table <- function(value) {
+  units <- as.data.frame(LLMRcontent::audit_units(value))
+  plan <- value$plan
+  if (!is.null(plan$data) && !is.null(plan$text) &&
+      plan$text %in% names(plan$data) && "unit_id" %in% names(units)) {
+    units$text <- as.character(plan$data[[plan$text]][units$unit_id])
+  }
+  units
+}
+
 mod_valid_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::uiOutput(ns("module_ui"))
@@ -459,6 +469,10 @@ mod_valid_server <- function(id, shared, active = NULL) {
         DT::DTOutput(ns("stability_table")),
         shiny::tags$h5("Fragility"),
         DT::DTOutput(ns("fragility_table")),
+        shiny::tags$h5("Audit cells"),
+        DT::DTOutput(ns("audit_cells_table")),
+        shiny::tags$h5("Audited units"),
+        DT::DTOutput(ns("audit_units_table")),
         shiny::tags$h5("Label-permutation placebo"),
         shiny::uiOutput(ns("placebo_status")),
         DT::DTOutput(ns("placebo_table")),
@@ -523,8 +537,9 @@ mod_valid_server <- function(id, shared, active = NULL) {
 
     output$diagnostics <- DT::renderDT({
       shiny::req(audit())
-      DT::datatable(
-        as_display_table(diagnostics_table(audit())),
+      .content_datatable(
+        diagnostics_table(audit()),
+        digits = 3,
         caption = "Combined audit diagnostics",
         rownames = FALSE,
         options = list(scrollX = TRUE, dom = "t")
@@ -533,8 +548,9 @@ mod_valid_server <- function(id, shared, active = NULL) {
 
     output$stability_table <- DT::renderDT({
       shiny::req(audit())
-      DT::datatable(
-        as_display_table(LLMRcontent::audit_stability(audit())),
+      .content_datatable(
+        LLMRcontent::audit_stability(audit()),
+        digits = 3,
         rownames = FALSE,
         options = list(scrollX = TRUE, dom = "t")
       )
@@ -555,7 +571,35 @@ mod_valid_server <- function(id, shared, active = NULL) {
         flipping_cells = paste(value$flipping_cells, collapse = ", "),
         stringsAsFactors = FALSE
       )
-      DT::datatable(table, rownames = FALSE, options = list(dom = "t"))
+      .content_datatable(
+        table,
+        digits = 3,
+        rownames = FALSE,
+        options = list(dom = "t")
+      )
+    })
+
+    output$audit_cells_table <- DT::renderDT({
+      shiny::req(audit())
+      .content_datatable(
+        tibble::as_tibble(audit()),
+        digits = 3,
+        caption = "Estimate and diagnostics for each audit cell",
+        rownames = FALSE,
+        options = list(pageLength = 8)
+      )
+    })
+
+    output$audit_units_table <- DT::renderDT({
+      shiny::req(audit())
+      .content_datatable(
+        .content_audit_units_table(audit()),
+        text = "text",
+        digits = 3,
+        caption = "Unit-level text and labels used by the audit cells",
+        rownames = FALSE,
+        options = list(pageLength = 8)
+      )
     })
 
     output$placebo_status <- shiny::renderUI({
@@ -588,8 +632,9 @@ mod_valid_server <- function(id, shared, active = NULL) {
 
     output$placebo_table <- DT::renderDT({
       shiny::req(placebo())
-      DT::datatable(
-        as_display_table(tibble::as_tibble(placebo())),
+      .content_datatable(
+        tibble::as_tibble(placebo()),
+        digits = 3,
         rownames = FALSE,
         options = list(scrollX = TRUE, pageLength = 8)
       )
