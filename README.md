@@ -11,6 +11,10 @@ Coding functions define and validate protocols. Audit functions recompute
 estimates under specified coding choices. Archive functions preserve
 [LLMR](https://github.com/asanaei/LLMR) call logs for checking and replay.
 
+To work without writing code, `run_content_studio()` opens a point-and-click
+interface for all three workflows. It has an offline demonstration mode, so it
+can be explored without a provider key. See "Shiny interface" below.
+
 ## The three workflows
 
 **Coding** begins with a codebook and a human-labeled gold set. Candidate
