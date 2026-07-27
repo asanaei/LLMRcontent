@@ -38,7 +38,7 @@ test_that("call_gold_set_mapped maps columns into a sealed gold set", {
 })
 
 test_that("demo gold defaults select text and label and retain a test split", {
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   path <- system.file(
     "extdata",
     "demo_gold.csv",
@@ -69,7 +69,7 @@ test_that("demo gold defaults select text and label and retain a test split", {
 })
 
 test_that("the coder bundle writes a flat CSV and a generic report", {
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   gold <- fix_gold(8)
   protocol <- protocol_lock(protocol(fix_codebook(), fix_config(),
                                      label = "bundle"))
@@ -96,7 +96,7 @@ test_that("the coder bundle writes a flat CSV and a generic report", {
 })
 
 test_that("the coder bundle marks demo components separately", {
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   gold <- fix_gold(8)
   protocol <- protocol_lock(protocol(
     fix_codebook(), fix_config(), label = "mixed-bundle"
@@ -144,7 +144,7 @@ test_that("the GUI assembles when its suggested packages are present", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   expect_s3_class(LLMRcontent:::.content_gui_ui(), "bslib_page")
   expect_true(is.function(LLMRcontent:::.content_gui_server))
 })
@@ -152,7 +152,7 @@ test_that("the GUI assembles when its suggested packages are present", {
 test_that("the demo audit records result rows without API calls", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   usage_seen <- new.env(parent = emptyenv())
   usage_seen$value <- NULL
   usage_seen$plans <- integer()
@@ -218,7 +218,7 @@ test_that("the content UI uses non-fillable pages and shared generation controls
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   ui_source <- paste(deparse(body(LLMRcontent:::.content_gui_ui)), collapse = "\n")
   expect_match(ui_source, "fillable = FALSE", fixed = TRUE)
@@ -274,7 +274,7 @@ test_that("coding steps use one open drawer and keep run actions outside", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   ns <- shiny::NS("coder")
   steps_html <- paste(
@@ -367,7 +367,7 @@ test_that("validation controls follow lock, ledger, and result state", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   shared <- list(
     mode = shiny::reactive("demo"),
@@ -520,7 +520,7 @@ test_that("audit and archive run actions follow loaded-input state", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   shared <- list(
     mode = shiny::reactive("demo"),
@@ -609,7 +609,7 @@ test_that("codebook wording starts visible and editable", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   shared <- list(
     mode = shiny::reactive("demo"),
@@ -647,7 +647,7 @@ test_that("codebook wording starts visible and editable", {
 
 test_that("display tables round doubles, widen text, and retain ids at right", {
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   input <- data.frame(
     response_id = c("r1", "r2"),
@@ -711,7 +711,7 @@ test_that("Archive can check carried coded-call records and retain its artifact"
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   shared <- list(provider = shiny::reactive("groq"))
   artifacts <- shiny::reactiveValues(
@@ -784,6 +784,7 @@ test_that("gold split scale previews do not truncate large splits", {
 })
 
 test_that("ggplot2 is optional at GUI launch", {
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   testthat::local_mocked_bindings(
     requireNamespace = function(package, ...) {
       !identical(package, "ggplot2")
