@@ -32,7 +32,7 @@ Suggests:
     shiny,
     bslib,
     DT,
-    LLMR.shiny
+    LLMR.shiny (>= 0.1.2)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 URL: https://github.com/asanaei/LLMRcontent, https://asanaei.github.io/LLMRcontent/
