@@ -5,9 +5,10 @@
 # LLMR.shiny.
 
 call_gold_set_mapped <- function(data, text_col, label_col, split, stratify,
-                                 seal_holdout = TRUE) {
+                                 seal_holdout = TRUE, id_col = NULL) {
   # LLMR.shiny::map_columns names the working columns "text" and "labels";
-  # gold_set takes those as column-name strings.
+  # gold_set takes those as column-name strings. An id column keeps its
+  # original name and rides through keep_original.
   mapped <- LLMR.shiny::map_columns(data, text_col, label_col, keep_original = TRUE)
   LLMRcontent::gold_set(
     data = mapped,
@@ -15,18 +16,21 @@ call_gold_set_mapped <- function(data, text_col, label_col, split, stratify,
     label = "labels",
     split = split,
     stratify = stratify,
-    seal_holdout = seal_holdout
+    seal_holdout = seal_holdout,
+    id = id_col
   )
 }
 
-call_code_corpus_mapped <- function(corpus, text_col, protocol, .runner = NULL) {
+call_code_corpus_mapped <- function(corpus, text_col, protocol, .runner = NULL,
+                                    id_col = NULL) {
   # Replicate count is carried by the locked protocol (protocol$replicates),
-  # not a code_corpus() argument.
+  # not a code_corpus() argument. An id column keeps its original name.
   mapped <- LLMR.shiny::map_columns(corpus, text_col, keep_original = TRUE)
   LLMRcontent::code_corpus(
     corpus = mapped,
     protocol = protocol,
     text = "text",
+    id = id_col,
     .runner = .runner
   )
 }

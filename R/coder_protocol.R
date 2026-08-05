@@ -10,6 +10,20 @@ parse_label <- function() {
   function(text, labels) .normalize_label(text, labels)
 }
 
+# Internal: apply a protocol's parser under the package's output contract.
+# A parser must return exactly one value; NA is a parse failure; anything
+# else is normalized against the codebook labels, and a value that matches
+# no label is a parse failure, never an undeclared category.
+.parse_protocol_label <- function(parser, text, labels) {
+  out <- parser(text, labels)
+  if (length(out) != 1L) {
+    abort("A protocol parser must return exactly one value per reply.")
+  }
+  out <- as.character(out)
+  if (is.na(out)) return(NA_character_)
+  .normalize_label(out, labels)
+}
+
 #' Assemble a coding protocol
 #'
 #' @param codebook A [codebook()].
@@ -85,6 +99,7 @@ protocol <- function(codebook, config, prompt = NULL, parser = NULL,
 
 .protocol_hash <- function(x) {
   .hash(list(
+    protocol_schema = 1L,
     codebook = codebook_hash(x$codebook),
     prompt = x$prompt,
     provider = x$config$provider,
@@ -93,7 +108,11 @@ protocol <- function(codebook, config, prompt = NULL, parser = NULL,
     no_change = x$config$no_change,
     embedding = x$config$embedding,
     replicates = x$replicates,
-    parser = .parser_hash_spec(x$parser)
+    parser = .parser_hash_spec(x$parser),
+    # Behavior the parser source cannot show: the label-normalization rule
+    # applied to every parser's output, and the replicate-aggregation policy.
+    normalizer = .normalizer_id,
+    aggregation = list(tie = "na", share_denominator = "all_replicates")
   ))
 }
 

@@ -1,7 +1,7 @@
 # The held-out split name is stored on the gold set at creation and followed
 # everywhere it used to be hard-wired as "test": the seal and size guards,
 # tune_protocol()'s refusal, validate_protocol()'s default and ledger,
-# gold_correct()'s audit and ledger, and the report heading. A gold set whose
+# gold_correct(, design = "srs")'s audit and ledger, and the report heading. A gold set whose
 # holdout is named "holdout" must be sealed, ledgered, validated, and
 # corrected exactly like the default.
 
@@ -104,7 +104,7 @@ test_that("gold_correct audits and ledgers the named holdout end to end", {
 
   coded <- code_corpus(corpus, pl, "text", .runner = fake)
 
-  res <- gold_correct(coded, gold)
+  res <- gold_correct(coded, gold, design = "srs")
   expect_identical(res$holdout, "holdout")
   expect_true(res$sealed)
   expect_equal(res$n_audit, 40L)

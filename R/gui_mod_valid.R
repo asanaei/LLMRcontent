@@ -80,7 +80,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
     ns <- session$ns
     data_raw <- shiny::reactiveVal(NULL)
     audit    <- shiny::reactiveVal(NULL)
-    placebo  <- shiny::reactiveVal(NULL)
     audit_timing <- shiny::reactiveVal(NULL)
     run_error <- shiny::reactiveVal(NULL)
 
@@ -133,31 +132,13 @@ mod_valid_server <- function(id, shared, active = NULL) {
                     "Each listed temperature defines a sampling arm in the audit grid."
                   )
                 ),
-                value = "0, 0.7",
-                placeholder = "For example: 0, 0.7"
+                value = "0",
+                placeholder = "For example: 0"
               )
             )
           ),
           shiny::checkboxInput(ns("add_paraphrase"),
             "Add a prompt paraphrase to the grid", value = TRUE),
-          shiny::fluidRow(
-            shiny::column(
-              6,
-              shiny::numericInput(
-                ns("placebo_reps"),
-                "Label-permutation placebo repetitions",
-                value = 200, min = 1, step = 1
-              )
-            ),
-            shiny::column(
-              6,
-              shiny::numericInput(
-                ns("placebo_seed"),
-                "Placebo seed",
-                value = 110, min = 1, step = 1
-              )
-            )
-          ),
           if (identical(shared$mode(), "demo")) demo_banner_ui(),
           shiny::uiOutput(ns("run_audit_action")),
           shiny::tags$hr(),
@@ -193,9 +174,11 @@ mod_valid_server <- function(id, shared, active = NULL) {
         selected = labs[[1]]
       ))
       if (identical(kind, "diff")) {
+        sel_target <- input$target %||% labs[[1]]
+        rest <- setdiff(labs, sel_target)
         ui <- c(ui, list(shiny::selectInput(ns("other"), "Compared-with label",
-                                            choices = labs,
-                                            selected = labs[min(2, length(labs))])))
+                                            choices = rest,
+                                            selected = rest[[1]])))
       }
       do.call(shiny::tagList, ui)
     })
@@ -211,12 +194,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
 
     output$run_audit_action <- shiny::renderUI({
       text_col <- input$text_col %||% ""
-      placebo_reps <- suppressWarnings(
-        as.integer(input$placebo_reps %||% NA_integer_)
-      )
-      placebo_seed <- suppressWarnings(
-        as.integer(input$placebo_seed %||% NA_integer_)
-      )
       reason <- if (is.null(data_raw())) {
         "The audit is disabled until data are loaded."
       } else if (NROW(data_raw()) < 1L) {
@@ -232,10 +209,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
         "The audit is disabled until a label order is selected."
       } else if (!length(parse_temps())) {
         "The audit is disabled until a numeric temperature is entered."
-      } else if (is.na(placebo_reps) || placebo_reps < 1L) {
-        "The audit is disabled until a positive placebo repetition count is entered."
-      } else if (is.na(placebo_seed)) {
-        "The audit is disabled until a whole-number placebo seed is entered."
       } else if (identical(shared$mode(), "live") &&
                  !nzchar(trimws(shared$model() %||% ""))) {
         "The audit is disabled until a model is entered."
@@ -294,7 +267,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
       run_error(NULL)
       data_raw(df)
       audit(NULL)
-      placebo(NULL)
       audit_timing(NULL)
     })
     shiny::observeEvent(input$load_demo, {
@@ -304,7 +276,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
                  "lower business rates", "protect workers' rights"),
         stringsAsFactors = FALSE))
       audit(NULL)
-      placebo(NULL)
       audit_timing(NULL)
     })
 
@@ -336,20 +307,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
         warn_user("Enter at least one numeric temperature.")
         return()
       }
-      placebo_reps <- suppressWarnings(
-        as.integer(input$placebo_reps %||% 200L)
-      )
-      placebo_seed <- suppressWarnings(
-        as.integer(input$placebo_seed %||% 110L)
-      )
-      if (is.na(placebo_reps) || placebo_reps < 1L) {
-        warn_user("Enter a positive whole number of placebo repetitions.")
-        return()
-      }
-      if (is.na(placebo_seed)) {
-        warn_user("Enter a whole-number placebo seed.")
-        return()
-      }
       if (identical(shared$mode(), "live") &&
           !nzchar(trimws(shared$model() %||% ""))) {
         warn_user("Enter a model in the sidebar before running the audit.")
@@ -365,6 +322,19 @@ mod_valid_server <- function(id, shared, active = NULL) {
         return()
       }
 
+      if (identical(input$estimand %||% "share", "diff") &&
+          identical(input$target %||% labs[1],
+                    input$other %||% labs[min(2, length(labs))])) {
+        warn_user("The difference estimand needs two different labels; it is identically zero for a label compared with itself.")
+        return()
+      }
+      if (any(parse_temps() > 0)) {
+        shiny::showNotification(
+          paste("Temperatures above 0 add sampling arms measured with one",
+                "draw per cell, so their differences include sampling noise,",
+                "not measurement-choice sensitivity alone."),
+          type = "warning", duration = 12, session = session)
+      }
       est <- make_estimator(input$estimand %||% "share",
                             target = input$target %||% labs[1],
                             other = input$other %||% labs[min(2, length(labs))])
@@ -467,21 +437,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
       }
       audit(out)
       audit_timing(finish_call_timing(call_batches, started))
-      set.seed(placebo_seed)
-      placebo_result <- safe_llmr_call(
-        LLMRcontent::audit_placebo(
-          out,
-          type = "label_permutation",
-          reps = placebo_reps
-        ),
-        shared$provider()
-      )
-      if (placebo_result$ok) {
-        placebo(placebo_result$value)
-      } else {
-        placebo(NULL)
-        run_error(placebo_result$ui)
-      }
       # Usage accounting must never crash a successful run; count defensively.
       n_calls <- tryCatch(nrow(LLMRcontent::audit_units(out)),
                           error = function(e) NA_integer_)
@@ -520,9 +475,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
         DT::DTOutput(ns("audit_cells_table")),
         shiny::tags$h5("Audited units"),
         DT::DTOutput(ns("audit_units_table")),
-        shiny::tags$h5("Label-permutation placebo"),
-        shiny::uiOutput(ns("placebo_status")),
-        DT::DTOutput(ns("placebo_table")),
         shiny::tags$h5("Specification curve"),
         shiny::uiOutput(ns("curve_ui")),
         shiny::uiOutput(ns("audit_timing_ui")),
@@ -536,9 +488,7 @@ mod_valid_server <- function(id, shared, active = NULL) {
             shiny::tags$h5("Stability console output"),
             text_block_output(ns("stability"), height = "12rem"),
             shiny::tags$h5("Fragility console output"),
-            text_block_output(ns("fragility"), height = "10rem"),
-            shiny::tags$h5("Placebo console output"),
-            text_block_output(ns("placebo_raw"), height = "16rem")
+            text_block_output(ns("fragility"), height = "10rem")
           ),
           open = FALSE
         )
@@ -649,44 +599,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
       )
     })
 
-    output$placebo_status <- shiny::renderUI({
-      value <- placebo()
-      if (is.null(value)) return(NULL)
-      degenerate <- sum(value$cells$degenerate %in% TRUE)
-      if (degenerate > 0L) {
-        return(shiny::tags$p(
-          class = "text-body-secondary",
-          sprintf(
-            paste0(
-              "%d of %d cells are permutation-invariant because this ",
-              "estimand uses only the label marginal; the placebo is ",
-              "uninformative for those cells."
-            ),
-            degenerate,
-            nrow(value$cells)
-          )
-        ))
-      }
-      shiny::tags$p(
-        class = "text-body-secondary",
-        sprintf(
-          "Computed %d label permutations for each of %d audit cells.",
-          value$reps,
-          nrow(value$cells)
-        )
-      )
-    })
-
-    output$placebo_table <- DT::renderDT({
-      shiny::req(placebo())
-      .content_datatable(
-        tibble::as_tibble(placebo()),
-        digits = 3,
-        rownames = FALSE,
-        options = list(scrollX = TRUE, pageLength = 8)
-      )
-    })
-
     output$curve_ui <- shiny::renderUI({
       if (!pkg_available("ggplot2")) return(install_guidance_ui("ggplot2"))
       shiny::plotOutput(ns("curve"), height = 300)
@@ -747,10 +659,6 @@ mod_valid_server <- function(id, shared, active = NULL) {
     output$fragility <- shiny::renderPrint({
       shiny::req(audit())
       print(LLMRcontent::audit_fragility(audit()))
-    })
-    output$placebo_raw <- shiny::renderPrint({
-      shiny::req(placebo())
-      print(placebo())
     })
   })
 }

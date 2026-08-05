@@ -9,8 +9,9 @@
 #' Classifies every model in the archive by how long its calls remain
 #' re-runnable:
 #'
-#' - `"open-pinnable"`: open-weight families (re-runnable indefinitely
-#'   against a pinned checkpoint; record the checkpoint hash in the paper).
+#' - `"open-pinnable"`: open-weight families (re-runnable against a pinned
+#'   checkpoint while the checkpoint and a compatible runtime remain
+#'   obtainable; record the checkpoint hash in the paper).
 #' - `"api-contingent"`: closed models behind a live API (re-runnable only
 #'   while the provider serves this version; the archived `model_version`
 #'   tells you which one to ask for).

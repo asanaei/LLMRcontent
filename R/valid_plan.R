@@ -40,6 +40,16 @@ audit_plan <- function(data, text, estimator, labels, prompt) {
             is.function(estimator),
             is.character(labels), length(labels) >= 2L,
             is.character(prompt), length(prompt) == 1L)
+  if ("label" %in% names(data)) {
+    abort(paste(
+      "`data` already contains a `label` column. The audit writes each",
+      "cell's model labels into `label` before calling the estimator, which",
+      "would overwrite yours; rename that column first."))
+  }
+  if (anyNA(data[[text]])) {
+    abort(sprintf("%d row(s) of column '%s' are NA; a missing text cannot be audited.",
+                  sum(is.na(data[[text]])), text))
+  }
   if (!grepl("{text}", prompt, fixed = TRUE)) {
     abort("`prompt` must contain the {text} placeholder.")
   }

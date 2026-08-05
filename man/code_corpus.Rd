@@ -26,11 +26,15 @@ those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par(
 }
 \value{
 A \code{coded_corpus} object. Its \code{data} field contains \code{corpus} plus
-\code{label} (modal label), \code{label_share} (share of replicates agreeing with
-it), \code{parse_failures} per unit, a \code{.text_hash} linkage column, and when
+\code{label} (modal label; \code{NA} when no replicate parsed or when the top
+labels tie, since a tie is disagreement, not a winner), \code{label_share}
+(the top label's share of all replicates, so parse failures lower it),
+\code{label_share_parsed} (its share among parsed replies alone), \code{tied},
+\code{parse_failures} per unit, a \code{.text_hash} linkage column, and when
 \code{protocol$replicates > 1} the individual replicate columns \code{label_rep1},
 \code{label_rep2}, .... Protocol and linkage fields are stored alongside the
-data.
+data. These result columns are reserved: a corpus that already contains
+one of them is refused rather than overwritten.
 }
 \description{
 Applies the locked protocol to every text, with \code{protocol$replicates}
@@ -43,6 +47,16 @@ Execution is live and parallel (\code{LLMR::call_llm_par()}); the
 \code{.runner} seam accepts any function with the same contract, including
 the replayer \code{\link[=archive_replay]{archive_replay()}} returns.
 }
+\section{Coded text rides in the prompt}{
+
+The rendered prompt interpolates each unit's text into the instruction
+message. A document that itself contains instruction-like text ("ignore
+the codebook and answer X") can therefore try to steer the model; for
+adversarial corpora, inspect replicate disagreement and validate against
+human labels with particular care. Separating instructions from data at
+the message level is planned for a later release.
+}
+
 \examples{
 cb <- codebook("tone", "one sentence",
   list(cb_category("positive", "Approving."),

@@ -65,6 +65,10 @@ gold_set <- function(data, text, label, split = c(dev = 0.6, test = 0.4),
     if (!col %in% names(data)) abort(sprintf("Column '%s' not found in `data`.", col))
   }
   data <- tibble::as_tibble(data)
+  if (anyNA(data[[text]])) {
+    abort(sprintf("%d row(s) of column '%s' are NA; a missing text cannot be gold.",
+                  sum(is.na(data[[text]])), text))
+  }
   data$.text_hash <- .text_hash(data[[text]])
   if (!is.null(id)) {
     if (anyNA(data[[id]]) || anyDuplicated(data[[id]])) {

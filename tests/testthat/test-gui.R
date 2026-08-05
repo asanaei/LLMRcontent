@@ -190,7 +190,6 @@ test_that("the demo audit records result rows without API calls", {
       session$flushReact()
       expect_s3_class(audit(), "audit")
       expect_true(LLMR.shiny::is_demo_result(audit()))
-      expect_s3_class(placebo(), "audit_placebo")
       config <- audit()$plan$models[[1]]
       expect_equal(config$model_params$temperature, 0.7)
       expect_equal(config$model_params$max_tokens, 128L)

@@ -56,10 +56,20 @@
 #'   coded corpus (linked by a shared `id` when present, otherwise by a
 #'   content hash of the text; see Details).
 #' @param conf Confidence level for the normal-approximation intervals.
+#' @param design How the audited units entered the gold set. The estimator
+#'   and its variance are justified when the audited units are a random
+#'   subsample of the coded corpus (or of the population the corpus
+#'   represents); state that by setting `design = "srs"`. The default,
+#'   `"unknown"`, refuses to compute a correction, because a correction
+#'   from a nonrandom audit (a balanced or convenience sample, say) is
+#'   biased in an unknowable direction. Declaring `"srs"` is an assertion
+#'   about your sampling, not something the function can verify; it is
+#'   recorded on the result.
 #' @return A `gold_correction` object: a list with `table` (`category`,
 #'   `share_naive`, `share_corrected`, `se`, `ci_lo`, `ci_hi`), `n_corpus`,
 #'   `n_parse_failures`, `n_audit`, `n_audit_parse_failures`,
-#'   `accuracy_audit`, `protocol_hash`, `protocol_label`, `conf`, `link_by`
+#'   `accuracy_audit`, `protocol_hash`, `protocol_label`, `conf`, `design`,
+#'   `link_by`
 #'   (how audit units were linked to the corpus, `"id"` or `"text hash"`),
 #'   `holdout` (the audited split's name), and `sealed` (whether the gold
 #'   set's holdout split was sealed), with a print method.
@@ -85,8 +95,9 @@
 #'
 #' Two assumptions do the inferential work: the audited units are a random
 #' subsample of the corpus (or of the population the corpus represents),
-#' and the corpus labels and the audit-pair labels come from the same
-#' locked protocol -- which the linkage guarantees here, because the
+#' which the `design` argument makes you assert rather than leaving
+#' implicit, and the corpus labels and the audit-pair labels come from the
+#' same locked protocol -- which the linkage guarantees here, because the
 #' audit pairs take their model labels from the coded corpus itself.
 #'
 #' Linkage uses a shared `id` column when both [gold_set()] and
@@ -118,7 +129,7 @@
 #'                               "a hopeful note", "an alarming figure"))
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
 #' coded <- code_corpus(corpus, protocol_lock(protocol(cb, cfg)), "text")
-#' gold_correct(coded, gold)
+#' gold_correct(coded, gold, design = "srs")
 #' }
 #'
 #' @references
@@ -134,8 +145,18 @@
 #'
 #' @seealso [code_corpus()], [gold_set()], [validate_protocol()].
 #' @export
-gold_correct <- function(coded, gold, conf = 0.95) {
+gold_correct <- function(coded, gold, conf = 0.95,
+                         design = c("unknown", "srs")) {
   stopifnot(inherits(coded, "coded_corpus"), inherits(gold, "gold_set"))
+  design <- match.arg(design)
+  if (identical(design, "unknown")) {
+    abort(paste(
+      "gold_correct() needs a declared sampling design for the audited",
+      "units. Set design = 'srs' only when the holdout units were drawn",
+      "randomly from the coded corpus (or from the population it",
+      "represents); a correction from a balanced or convenience audit is",
+      "biased in an unknowable direction."))
+  }
   if (!is.numeric(conf) || length(conf) != 1L || is.na(conf) ||
       conf <= 0 || conf >= 1) {
     abort("`conf` must be a number between 0 and 1.")
@@ -207,6 +228,21 @@ gold_correct <- function(coded, gold, conf = 0.95) {
       "Add a stable `id` column to both gold_set() and code_corpus() to disambiguate."))
   }
 
+  # The corpus-side duplicate check above cannot see two audit units landing
+  # on the SAME corpus row (duplicate texts inside the gold set, when linking
+  # by text hash). That would count one corpus unit twice -- and can push
+  # n_audit past n_corpus, where the finite-population factor goes negative.
+  used_idx <- match_idx[matched]
+  if (anyDuplicated(used_idx)) {
+    n_multi <- sum(duplicated(used_idx))
+    abort(sprintf(paste(
+      "%d audit unit(s) map to a corpus row that another audit unit already",
+      "matched (duplicate %s among the audited units). Each audited unit",
+      "must be a distinct corpus row; deduplicate the gold data or supply a",
+      "shared `id` column."), n_multi,
+      if (identical(link$by, "id")) "ids" else "texts"))
+  }
+
   gold_lab <- vapply(as.character(g[[gold$label]][matched]), .normalize_label,
                      character(1), labels = labels, USE.NAMES = FALSE)
   if (anyNA(gold_lab)) {
@@ -226,6 +262,9 @@ gold_correct <- function(coded, gold, conf = 0.95) {
     abort(sprintf("No matched audit units from the holdout split ('%s') have parsed corpus labels.",
                   holdout))
   }
+  # With duplicates refused, every audit pair is a distinct parsed corpus
+  # row, so this cannot fire; it guards the variance formula's n/N <= 1.
+  stopifnot(n_audit <= n_corpus)
   if (n_audit < 20L) {
     cli::cli_warn("Only {n_audit} audited unit(s); the correction's variance estimate is unstable.")
   }
@@ -265,6 +304,7 @@ gold_correct <- function(coded, gold, conf = 0.95) {
          protocol_hash = protocol_hash,
          protocol_label = protocol_label,
          conf = conf,
+         design = design,
          link_by = link$by,
          holdout = holdout,
          sealed = isTRUE(gold$sealed)),
@@ -293,6 +333,7 @@ print.gold_correction <- function(x, ...) {
   cat(sprintf("  The audit uses the %sholdout split ('%s'), linked into the corpus by %s.\n",
               if (isTRUE(x$sealed)) "sealed " else "", x$holdout,
               x$link_by %||% "text hash"))
+  cat("  Declared design: audited units are a random subsample of the corpus.\n")
   outside <- x$table$share_corrected < 0 | x$table$share_corrected > 1
   if (any(outside, na.rm = TRUE)) {
     cat("  Corrected shares outside [0, 1] signal an unstable audit correction.\n")

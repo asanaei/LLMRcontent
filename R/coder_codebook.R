@@ -86,6 +86,19 @@ codebook <- function(name, unit, categories, instructions = NULL,
   }
   labs <- vapply(categories, `[[`, "", "label")
   if (anyDuplicated(labs)) abort("Category labels must be unique.")
+  # The parser matches labels case-insensitively with whitespace collapsed, so
+  # labels that collide under that normalization ("Yes" and "yes") would make
+  # one category unreachable or ambiguous. Refuse them at construction.
+  keys <- .label_key(labs)
+  if (any(!nzchar(keys))) {
+    abort("Category labels must contain visible characters.")
+  }
+  if (anyDuplicated(keys)) {
+    clash <- labs[keys %in% keys[duplicated(keys)]]
+    abort(sprintf(paste(
+      "Category labels must stay distinct after case and whitespace",
+      "normalization; these collide: %s."), paste(clash, collapse = ", ")))
+  }
   structure(
     list(name = name, unit = unit, categories = categories,
          instructions = instructions, version = as.character(version)),

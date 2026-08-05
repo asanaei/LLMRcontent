@@ -2,7 +2,7 @@
 % Please edit documentation in R/archive_archive.R
 \name{archive_redact}
 \alias{archive_redact}
-\title{Redact an archive's content while keeping its hash tree}
+\title{Redact an archive's content while keeping its record hashes and roots}
 \usage{
 archive_redact(archive)
 }

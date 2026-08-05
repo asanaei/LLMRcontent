@@ -22,7 +22,7 @@ those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par(
 \item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
 }
 \value{
-A \code{protocol_validation}: accuracy with bootstrap CI, macro-F1,
+A \code{protocol_validation}: accuracy with an exact binomial CI, macro-F1,
 parse failures, total tokens (when the runner reported them),
 per-category table, confusion matrix, the protocol hash, the gold
 set's holdout split name, and the ledger position of this evaluation.

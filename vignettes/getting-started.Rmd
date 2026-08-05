@@ -147,10 +147,13 @@ head(coded_data[c("id", "label")])
 
 `gold_correct()` compares the model and human labels in the holdout sample.
 It uses those differences to correct corpus category shares and calculate their
-standard errors.
+standard errors. The estimator is justified only when the audited units are a
+random subsample of the coded corpus, so the call requires that assertion:
+`design = "srs"` states it, and the default refuses to compute a correction
+from an undeclared (possibly balanced or convenience) audit.
 
 ```{r}
-corrected <- gold_correct(coded, gold)
+corrected <- gold_correct(coded, gold, design = "srs")
 
 tibble::as_tibble(corrected)
 ```

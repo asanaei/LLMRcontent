@@ -68,17 +68,18 @@ test_that("sealed replay and checks derive from raw records", {
 
   expect_identical(archive_replay(a)(experiments)$response_text, expected)
 
+  # Since the two-root seal, the manifest sits inside the seal: editing any
+  # manifest field breaks root_ok (records themselves still verify), and
+  # replay refuses the broken archive instead of serving from it.
   manifest_tamper <- a
   manifest_tamper$manifest$request_hash[1] <-
     manifest_tamper$manifest$request_hash[2]
   checked <- archive_check(manifest_tamper)
-  expect_true(checked$intact)
-  expect_true(checked$root_ok)
-  expect_length(checked$duplicate_request_hashes, 0L)
-  expect_identical(
-    archive_replay(manifest_tamper)(experiments)$response_text,
-    expected
-  )
+  expect_false(checked$intact)
+  expect_false(checked$root_ok)
+  expect_true(checked$records_ok)
+  expect_error(archive_replay(manifest_tamper),
+               "fails archive_check")
 
   cache_tamper <- a
   cache_tamper$records[[1]]$rec <- list(

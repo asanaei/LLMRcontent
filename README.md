@@ -41,7 +41,7 @@ tuning <- tune_protocol(candidates, g)                       # development split
 p <- protocol_lock(candidates[[tuning$table$protocol[[1]]]]) # selected protocol
 v <- validate_protocol(p, g)                                 # sealed holdout
 coded <- code_corpus(corpus, p, "text")                      # full corpus
-gc <- gold_correct(coded, g)                                 # prevalence + SEs
+gc <- gold_correct(coded, g, design = "srs")                 # prevalence + SEs
 ```
 
 **Robustness audits** recompute an estimator for each selected prompt, model,

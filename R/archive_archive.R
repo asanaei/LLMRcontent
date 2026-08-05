@@ -52,15 +52,19 @@ archive_build <- function(log, name = NULL) {
   )
 }
 
-#' Seal an archive under a root hash
+#' Seal an archive under two roots
 #'
-#' Computes a single root hash over the ordered record hashes plus the
-#' environment block. Any subsequent change to any record -- one character
-#' of one prompt -- changes the root. Record the root with the deposited
-#' archive so later checks can detect changes.
+#' Computes two digests. The content root covers the ordered record hashes
+#' and nothing else: it is the stable identity of the call records, the
+#' same on any machine that rebuilds the same log, and the value to cite
+#' with a deposited archive. The seal root binds the content root to the
+#' full manifest and the environment block, so a change to any record, any
+#' manifest field (provider, model, timestamps), or the recorded
+#' environment breaks the seal.
 #'
 #' @param archive An [archive_build()] result.
-#' @return The archive, sealed, with `$seal` set.
+#' @return The archive, sealed, with `$seal` set (`content_root`, `root`,
+#'   `sealed_at`, `n_records`).
 #' @examples
 #' log <- tempfile(fileext = ".jsonl")
 #' writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
@@ -68,17 +72,36 @@ archive_build <- function(log, name = NULL) {
 #'   '"request":{"q":1},"usage":{"sent":5,"rec":2},',
 #'   '"response_id":"r-1","text":"reply"}'), log)
 #' a <- archive_seal(archive_build(log))
-#' substr(a$seal$root, 1, 12)   # cite this root in the paper
+#' substr(a$seal$content_root, 1, 12)   # cite this root in the paper
 #' @export
 archive_seal <- function(archive) {
   stopifnot(inherits(archive, "archive"))
-  root <- .hash_chr(paste(c(archive$manifest$record_hash,
-                            .hash_obj(archive$env)), collapse = "|"))
-  archive$seal <- list(root = root,
-                       sealed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
-                       n_records = nrow(archive$manifest))
+  content_root <- .archive_content_root(archive$manifest)
+  archive$seal <- list(
+    root = .archive_seal_root(content_root, archive$manifest, archive$env),
+    content_root = content_root,
+    sealed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+    n_records = nrow(archive$manifest))
   archive$sealed <- TRUE
   archive
+}
+
+# Internal: the two digests of the seal. The content root is a function of
+# the ordered record hashes alone. The seal root additionally covers the
+# manifest -- minus `public_record_hash`, a column archive_redact() adds
+# after sealing -- and the environment block.
+.archive_content_root <- function(manifest) {
+  .hash_chr(paste(manifest$record_hash, collapse = "|"))
+}
+.archive_seal_root <- function(content_root, manifest, env) {
+  sealed_manifest <- manifest[setdiff(names(manifest), "public_record_hash")]
+  # Hash a type-canonical view (every column as character): a write/read
+  # round trip may revive an all-NA character column as logical NA, and the
+  # seal must survive serialization while still catching any value change.
+  canonical <- list(names = names(sealed_manifest),
+                    columns = lapply(sealed_manifest, as.character))
+  .hash_chr(paste(c(content_root, .hash_obj(canonical), .hash_obj(env)),
+                  collapse = "|"))
 }
 
 #' Verify an archive's integrity and (optionally) a result's completeness
@@ -92,12 +115,19 @@ archive_seal <- function(archive) {
 #'
 #' @param archive An `archive`.
 #' @param results Optional data frame with a `response_id` column.
-#' @return A list of class `archive_check`: `records_ok` indicates whether
+#' @return A list of class `archive_check`: `shape_ok` indicates that the
+#'   record list, the manifest, and (when sealed) the seal's stored record
+#'   count agree on cardinality, checked before any hash comparison so a
+#'   truncated or padded record list cannot slip through elementwise
+#'   recycling; `records_ok` indicates whether
 #'   every record matches its applicable manifest hash; `root_ok` indicates
-#'   whether the original seal root is valid and is `NA` for an unsealed
+#'   whether the seal root (content root, manifest, and environment) is
+#'   valid, and `content_root_ok` whether the content root matches the
+#'   ordered record hashes -- both `NA` for an unsealed
 #'   archive; `public_root_ok` indicates whether the public root is valid and
 #'   is `NA` for an unredacted archive; `intact` is the conjunction of the
-#'   record comparison and every applicable root check. The remaining fields
+#'   shape check, the record comparison, and every applicable root check.
+#'   The remaining fields
 #'   are `redacted`, `n_records`, `bad_records` (indices),
 #'   `duplicate_response_ids` and
 #'   `duplicate_request_hashes` (each a character vector of any values that
@@ -116,6 +146,14 @@ archive_seal <- function(archive) {
 #' @export
 archive_check <- function(archive, results = NULL) {
   stopifnot(inherits(archive, "archive"))
+  # Cardinality first. Elementwise hash comparison recycles under unequal
+  # lengths (and a zero-length record list compares as vacuously clean), so
+  # no hash verdict below means anything unless the shapes agree.
+  n_rec <- length(archive$records)
+  n_man <- nrow(archive$manifest)
+  shape_ok <- n_rec == n_man &&
+    (!isTRUE(archive$sealed) ||
+       identical(as.integer(archive$seal$n_records), as.integer(n_man)))
   rehash <- vapply(archive$records, function(r) .hash_chr(r$raw), character(1))
   reference <- if (isTRUE(archive$redacted)) {
     if (is.null(archive$manifest$public_record_hash)) {
@@ -125,13 +163,17 @@ archive_check <- function(archive, results = NULL) {
   } else {
     archive$manifest$record_hash
   }
-  bad <- which(is.na(reference) | rehash != reference)
-  records_ok <- length(bad) == 0L
+  bad <- if (shape_ok) which(is.na(reference) | rehash != reference)
+         else integer(0)
+  records_ok <- shape_ok && length(bad) == 0L
   root_ok <- NA
+  content_root_ok <- NA
   if (isTRUE(archive$sealed)) {
-    root <- .hash_chr(paste(c(archive$manifest$record_hash,
-                              .hash_obj(archive$env)), collapse = "|"))
-    root_ok <- identical(root, archive$seal$root)
+    content_root <- .archive_content_root(archive$manifest)
+    content_root_ok <- identical(content_root, archive$seal$content_root)
+    root_ok <- identical(
+      .archive_seal_root(content_root, archive$manifest, archive$env),
+      archive$seal$root)
   }
   public_root_ok <- NA
   if (isTRUE(archive$redacted)) {
@@ -139,8 +181,8 @@ archive_check <- function(archive, results = NULL) {
                                    collapse = "|"))
     public_root_ok <- identical(public_root, archive$seal$public_root)
   }
-  root_checks <- c(root_ok, public_root_ok)
-  intact <- records_ok && all(root_checks[!is.na(root_checks)])
+  root_checks <- c(root_ok, content_root_ok, public_root_ok)
+  intact <- shape_ok && records_ok && all(root_checks[!is.na(root_checks)])
   # Duplicate diagnostics: a well-formed log gives each call a distinct
   # response_id, and a distinct request_hash unless a call was genuinely
   # repeated. Duplicates in either are a sign of a malformed or merged log and
@@ -158,7 +200,8 @@ archive_check <- function(archive, results = NULL) {
   rh_present <- rh[!is.na(rh)]
   dup_request_hashes <- unique(rh_present[duplicated(rh_present)])
 
-  out <- list(records_ok = records_ok, root_ok = root_ok,
+  out <- list(shape_ok = shape_ok, records_ok = records_ok, root_ok = root_ok,
+              content_root_ok = content_root_ok,
               public_root_ok = public_root_ok, intact = intact,
               redacted = isTRUE(archive$redacted),
               n_records = nrow(archive$manifest), bad_records = bad,
@@ -191,9 +234,15 @@ print.archive_check <- function(x, ...) {
             if (isTRUE(x$records_ok)) "" else
               sprintf(" (%d bad)", length(x$bad_records)))
   )
+  if (!isTRUE(x$shape_ok)) {
+    fields <- c(fields,
+                "shape: BROKEN (record list, manifest, and seal disagree on cardinality)")
+  }
   if (!is.na(x$root_ok)) {
     fields <- c(fields,
-                paste0("seal: ", if (x$root_ok) "VALID" else "BROKEN"))
+                paste0("seal: ", if (x$root_ok) "VALID" else "BROKEN"),
+                paste0("content root: ",
+                       if (isTRUE(x$content_root_ok)) "VALID" else "BROKEN"))
   }
   if (!is.na(x$public_root_ok)) {
     fields <- c(fields, paste0("public root: ",
@@ -218,7 +267,7 @@ print.archive_check <- function(x, ...) {
   invisible(x)
 }
 
-#' Redact an archive's content while keeping its hash tree
+#' Redact an archive's content while keeping its record hashes and roots
 #'
 #' Removes request and response text from every record and re-serializes the
 #' record with a `redacted` marker. The original record hashes and seal root
@@ -315,6 +364,8 @@ diagnostics.archive <- function(x, ...) {
     sealed = isTRUE(x$sealed),
     root = if (isTRUE(x$sealed) && !is.null(x$seal$root))
       as.character(x$seal$root) else NA_character_,
+    content_root = if (isTRUE(x$sealed) && !is.null(x$seal$content_root))
+      as.character(x$seal$content_root) else NA_character_,
     redacted = isTRUE(x$redacted),
     n_open_pinnable = as.integer(sum(h$calls[h$class %in% "open-pinnable"],
                                      na.rm = TRUE)),

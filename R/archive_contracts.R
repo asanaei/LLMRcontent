@@ -67,10 +67,14 @@ archive_replay <- function(archive, replay_mode = c("queue", "first", "strict_on
   if (isTRUE(archive$redacted)) {
     abort("A redacted archive has no content to replay.")
   }
+  if (!isTRUE(archive_check(archive)$intact)) {
+    abort("This archive fails archive_check(); replaying a broken archive would serve unverified content.")
+  }
 
   # Derive both the record and its request hash from the stored raw line. The
-  # seal binds that line through record_hash, while the parsed-record cache and
-  # manifest request_hash are conveniences outside the seal.
+  # seal binds that line through record_hash (and, since the two-root seal,
+  # the manifest as a whole); the parsed-record cache is a convenience that
+  # replay never trusts.
   entries <- list()
   keys <- character(0)
   for (i in seq_along(archive$records)) {
@@ -240,6 +244,9 @@ archive_drift <- function(archive, fraction = NULL, n = NULL,
                           strata = c("provider", "model"),
                           .runner = NULL, ...) {
   stopifnot(inherits(archive, "archive"))
+  if (!isTRUE(archive_check(archive)$intact)) {
+    abort("This archive fails archive_check(); drift against a broken archive would compare against unverified content.")
+  }
   if (!is.null(fraction) && !is.null(n)) {
     abort("Supply only one of `fraction` and `n`.")
   }

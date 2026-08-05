@@ -12,12 +12,19 @@ archive_check(archive, results = NULL)
 \item{results}{Optional data frame with a \code{response_id} column.}
 }
 \value{
-A list of class \code{archive_check}: \code{records_ok} indicates whether
+A list of class \code{archive_check}: \code{shape_ok} indicates that the
+record list, the manifest, and (when sealed) the seal's stored record
+count agree on cardinality, checked before any hash comparison so a
+truncated or padded record list cannot slip through elementwise
+recycling; \code{records_ok} indicates whether
 every record matches its applicable manifest hash; \code{root_ok} indicates
-whether the original seal root is valid and is \code{NA} for an unsealed
+whether the seal root (content root, manifest, and environment) is
+valid, and \code{content_root_ok} whether the content root matches the
+ordered record hashes -- both \code{NA} for an unsealed
 archive; \code{public_root_ok} indicates whether the public root is valid and
 is \code{NA} for an unredacted archive; \code{intact} is the conjunction of the
-record comparison and every applicable root check. The remaining fields
+shape check, the record comparison, and every applicable root check.
+The remaining fields
 are \code{redacted}, \code{n_records}, \code{bad_records} (indices),
 \code{duplicate_response_ids} and
 \code{duplicate_request_hashes} (each a character vector of any values that

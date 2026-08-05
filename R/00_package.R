@@ -66,3 +66,15 @@ utils::globalVariables(c("protocol_id", "label", "estimate"))
   if (!is.na(hit)) return(labels[hit])
   NA_character_
 }
+
+# The key under which .normalize_label() matches case-insensitively: trimmed,
+# internal whitespace collapsed, lowercased. Two labels sharing a key are
+# indistinguishable to normalized matching, so codebook() refuses them.
+.label_key <- function(x) {
+  tolower(gsub("\\s+", " ", trimws(enc2utf8(as.character(x)))))
+}
+
+# Version tag of the normalization above. It enters the protocol hash, so a
+# future change to the matching rule invalidates old locks instead of
+# silently reinterpreting archived replies.
+.normalizer_id <- "label-normalizer-v1"

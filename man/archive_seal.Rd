@@ -2,7 +2,7 @@
 % Please edit documentation in R/archive_archive.R
 \name{archive_seal}
 \alias{archive_seal}
-\title{Seal an archive under a root hash}
+\title{Seal an archive under two roots}
 \usage{
 archive_seal(archive)
 }
@@ -10,13 +10,17 @@ archive_seal(archive)
 \item{archive}{An \code{\link[=archive_build]{archive_build()}} result.}
 }
 \value{
-The archive, sealed, with \verb{$seal} set.
+The archive, sealed, with \verb{$seal} set (\code{content_root}, \code{root},
+\code{sealed_at}, \code{n_records}).
 }
 \description{
-Computes a single root hash over the ordered record hashes plus the
-environment block. Any subsequent change to any record -- one character
-of one prompt -- changes the root. Record the root with the deposited
-archive so later checks can detect changes.
+Computes two digests. The content root covers the ordered record hashes
+and nothing else: it is the stable identity of the call records, the
+same on any machine that rebuilds the same log, and the value to cite
+with a deposited archive. The seal root binds the content root to the
+full manifest and the environment block, so a change to any record, any
+manifest field (provider, model, timestamps), or the recorded
+environment breaks the seal.
 }
 \examples{
 log <- tempfile(fileext = ".jsonl")
@@ -25,5 +29,5 @@ writeLines(paste0('{"ts":"2026-06-01T10:00:01+0000","schema_version":"1.0",',
   '"request":{"q":1},"usage":{"sent":5,"rec":2},',
   '"response_id":"r-1","text":"reply"}'), log)
 a <- archive_seal(archive_build(log))
-substr(a$seal$root, 1, 12)   # cite this root in the paper
+substr(a$seal$content_root, 1, 12)   # cite this root in the paper
 }

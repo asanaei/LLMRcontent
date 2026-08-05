@@ -154,8 +154,9 @@ test_that("diagnostics, report, and as_tibble dispatch on sealed archives", {
 
   d <- LLMR::diagnostics(a)
   expect_s3_class(d, "tbl_df")
-  expect_named(d, c("n_records", "sealed", "root", "redacted",
+  expect_named(d, c("n_records", "sealed", "root", "content_root", "redacted",
                     "n_open_pinnable", "n_api_contingent"))
+  expect_match(d$content_root, "^[a-f0-9]{64}$")
   expect_equal(d$n_records, 2L)
   expect_true(d$sealed)
   expect_match(d$root, "^[a-f0-9]{64}$")
@@ -196,7 +197,8 @@ test_that("archive_check flags duplicate response_ids and repeated requests", {
 test_that("a clean archive reports no duplicates", {
   chk <- archive_check(archive_build(fix_archive_log()))
   expect_named(chk, c(
-    "records_ok", "root_ok", "public_root_ok", "intact", "redacted",
+    "shape_ok", "records_ok", "root_ok", "content_root_ok",
+    "public_root_ok", "intact", "redacted",
     "n_records", "bad_records",
     "duplicate_response_ids", "duplicate_request_hashes", "n_results",
     "n_matched", "unmatched_ids"

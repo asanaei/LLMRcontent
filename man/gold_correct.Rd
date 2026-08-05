@@ -4,7 +4,7 @@
 \alias{gold_correct}
 \title{Correct corpus prevalences with the gold-set audit}
 \usage{
-gold_correct(coded, gold, conf = 0.95)
+gold_correct(coded, gold, conf = 0.95, design = c("unknown", "srs"))
 }
 \arguments{
 \item{coded}{A \code{\link[=code_corpus]{code_corpus()}} result.}
@@ -15,12 +15,23 @@ coded corpus (linked by a shared \code{id} when present, otherwise by a
 content hash of the text; see Details).}
 
 \item{conf}{Confidence level for the normal-approximation intervals.}
+
+\item{design}{How the audited units entered the gold set. The estimator
+and its variance are justified when the audited units are a random
+subsample of the coded corpus (or of the population the corpus
+represents); state that by setting \code{design = "srs"}. The default,
+\code{"unknown"}, refuses to compute a correction, because a correction
+from a nonrandom audit (a balanced or convenience sample, say) is
+biased in an unknowable direction. Declaring \code{"srs"} is an assertion
+about your sampling, not something the function can verify; it is
+recorded on the result.}
 }
 \value{
 A \code{gold_correction} object: a list with \code{table} (\code{category},
 \code{share_naive}, \code{share_corrected}, \code{se}, \code{ci_lo}, \code{ci_hi}), \code{n_corpus},
 \code{n_parse_failures}, \code{n_audit}, \code{n_audit_parse_failures},
-\code{accuracy_audit}, \code{protocol_hash}, \code{protocol_label}, \code{conf}, \code{link_by}
+\code{accuracy_audit}, \code{protocol_hash}, \code{protocol_label}, \code{conf}, \code{design},
+\code{link_by}
 (how audit units were linked to the corpus, \code{"id"} or \code{"text hash"}),
 \code{holdout} (the audited split's name), and \code{sealed} (whether the gold
 set's holdout split was sealed), with a print method.
@@ -53,8 +64,9 @@ units whose corpus label is \code{NA}.
 
 Two assumptions do the inferential work: the audited units are a random
 subsample of the corpus (or of the population the corpus represents),
-and the corpus labels and the audit-pair labels come from the same
-locked protocol -- which the linkage guarantees here, because the
+which the \code{design} argument makes you assert rather than leaving
+implicit, and the corpus labels and the audit-pair labels come from the
+same locked protocol -- which the linkage guarantees here, because the
 audit pairs take their model labels from the coded corpus itself.
 
 Linkage uses a shared \code{id} column when both \code{\link[=gold_set]{gold_set()}} and
@@ -86,7 +98,7 @@ corpus <- data.frame(text = c(gold_data$text,
                               "a hopeful note", "an alarming figure"))
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
 coded <- code_corpus(corpus, protocol_lock(protocol(cb, cfg)), "text")
-gold_correct(coded, gold)
+gold_correct(coded, gold, design = "srs")
 }
 
 }

@@ -36,13 +36,12 @@
   )
 }
 
-# Internal: bootstrap CI for accuracy (percentile).
-.acc_ci <- function(pred, gold, conf = 0.95, reps = 2000) {
-  n <- length(gold)
+# Internal: exact (Clopper-Pearson) CI for accuracy. Deterministic, and it
+# does not collapse to a point interval when every prediction is right or
+# wrong, which the earlier unseeded percentile bootstrap did.
+.acc_ci <- function(pred, gold, conf = 0.95) {
   hit <- (pred == gold) %in% TRUE
-  boots <- vapply(seq_len(reps), function(i) mean(hit[sample.int(n, n, TRUE)]),
-                  numeric(1))
-  stats::quantile(boots, c((1 - conf) / 2, 1 - (1 - conf) / 2), names = FALSE)
+  unname(stats::binom.test(sum(hit), length(hit), conf.level = conf)$conf.int)
 }
 
 #' Agreement among coders or replicates

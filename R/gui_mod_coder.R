@@ -545,6 +545,19 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
           "Label column",
           choices = cols,
           selected = label_col
+        ),
+        shiny::selectInput(
+          session$ns("gold_id_col"),
+          shiny::tagList(
+            "Stable id column (optional) ",
+            help_tip(paste(
+              "An id shared with the corpus lets the correction link audited",
+              "units even when texts repeat; without one, duplicate texts",
+              "are refused rather than matched arbitrarily."))
+          ),
+          choices = c("(none)" = "", cols),
+          selected = guess_column(cols, "id",
+                                  exclude = c(text_col, label_col)) %||% ""
         )
       )
     })
@@ -575,11 +588,17 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
 
     output$gold_size_status <- shiny::renderUI({
       result <- gold_size_result()
+      holdout_frac <- 1 - (input$dev_split %||% 60) / 100
+      total <- if (holdout_frac > 0) ceiling(result$recommended_size / holdout_frac) else NA
       shiny::tags$p(
         class = "fw-semibold",
         sprintf(
-          "Recommended planning size: %d human-coded units.",
-          result$recommended_size
+          paste(
+            "Recommended size of the evaluation (holdout) split: %d",
+            "human-coded units. With the current split, that means about %s",
+            "gold units in total."),
+          result$recommended_size,
+          if (is.na(total)) "-" else format(total)
         )
       )
     })
@@ -630,6 +649,15 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       # A cleared numericInput yields NA; fall back to the default seed.
       seed <- suppressWarnings(as.integer(input$gold_seed %||% 110L))
       if (is.na(seed)) seed <- 110L
+      id_col <- input$gold_id_col %||% ""
+      if (nzchar(id_col) && id_col %in% c(text_col, label_col)) {
+        warn_user("The id column must differ from the text and label columns.")
+        return()
+      }
+      if (nzchar(id_col) && !id_col %in% names(gold_raw())) {
+        warn_user("The selected id column is not in the gold data.")
+        return()
+      }
       set.seed(seed)
       split <- c(dev = input$dev_split / 100, test = 1 - input$dev_split / 100)
 
@@ -640,7 +668,8 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
           label_col,
           split = split,
           stratify = isTRUE(input$stratify_gold),
-          seal_holdout = TRUE
+          seal_holdout = TRUE,
+          id_col = if (nzchar(id_col)) id_col else NULL
         ),
         shared$provider()
       )
@@ -1425,11 +1454,25 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       }
 
       cols <- column_names_for_mapping(df)
-      shiny::selectInput(
-        session$ns("corpus_text_col"),
-        "Text column",
-        choices = cols,
-        selected = guess_column(cols, "text")
+      text_guess <- guess_column(cols, "text")
+      shiny::tagList(
+        shiny::selectInput(
+          session$ns("corpus_text_col"),
+          "Text column",
+          choices = cols,
+          selected = text_guess
+        ),
+        shiny::selectInput(
+          session$ns("corpus_id_col"),
+          shiny::tagList(
+            "Stable id column (optional) ",
+            help_tip(paste(
+              "Use the same id column as the gold data so the correction can",
+              "link audited units to corpus rows."))
+          ),
+          choices = c("(none)" = "", cols),
+          selected = guess_column(cols, "id", exclude = text_guess) %||% ""
+        )
       )
     })
 
@@ -1527,6 +1570,15 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
         warn_user("Select a text column before coding the corpus.")
         return()
       }
+      corpus_id_col <- input$corpus_id_col %||% ""
+      if (nzchar(corpus_id_col) && identical(corpus_id_col, text_col)) {
+        warn_user("The id column must differ from the text column.")
+        return()
+      }
+      if (nzchar(corpus_id_col) && !corpus_id_col %in% names(corpus_raw())) {
+        warn_user("The selected id column is not in the corpus.")
+        return()
+      }
 
       use_archive <- archive_replay_available() &&
         isTRUE(input$use_built_archive)
@@ -1579,7 +1631,8 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
             corpus = corpus_raw(),
             text_col = text_col,
             protocol = locked_protocol(),
-            .runner = timed_runner
+            .runner = timed_runner,
+            id_col = if (nzchar(corpus_id_col)) corpus_id_col else NULL
           )
           shiny::incProgress(0.8)
           out
@@ -1609,19 +1662,29 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       }
 
       warns <- character()
-      corr <- tryCatch(
-        withCallingHandlers(
-          LLMRcontent::gold_correct(out, gold(), conf = input$correction_conf %||% 0.95),
-          warning = function(w) {
-            warns <<- c(warns, conditionMessage(w))
-            invokeRestart("muffleWarning")
+      corr <- NULL
+      if (!isTRUE(input$correction_srs)) {
+        warns <- c(warns, paste(
+          "Correction skipped: corrected prevalences assume the audited",
+          "(holdout) units are a random subsample of this corpus. Tick the",
+          "confirmation box above the confidence setting to compute them."))
+      } else {
+        corr <- tryCatch(
+          withCallingHandlers(
+            LLMRcontent::gold_correct(out, gold(),
+                                      conf = input$correction_conf %||% 0.95,
+                                      design = "srs"),
+            warning = function(w) {
+              warns <<- c(warns, conditionMessage(w))
+              invokeRestart("muffleWarning")
+            }
+          ),
+          error = function(e) {
+            warns <<- c(warns, paste("Correction unavailable:", conditionMessage(e)))
+            NULL
           }
-        ),
-        error = function(e) {
-          warns <<- c(warns, paste("Correction unavailable:", conditionMessage(e)))
-          NULL
-        }
-      )
+        )
+      }
 
       correction_warnings(warns)
       # The coded corpus and the gold correction are different objects: coded()
@@ -2039,7 +2102,7 @@ coder_config_ui <- function(ns, shared = NULL) {
     shiny::checkboxGroupInput(
       ns("prompt_variants"),
       "Prompt candidates",
-      choices = c("Base" = "base", "Strict label only" = "strict", "Include uncertainty instruction" = "uncertain"),
+      choices = c("Base" = "base", "Strict label only" = "strict", "Force closest label" = "uncertain"),
       selected = c("base", "strict")
     ),
     shiny::numericInput(
@@ -2112,6 +2175,19 @@ coder_corpus_ui <- function(ns, shared = NULL, corpus = NULL, coded = NULL,
     shiny::uiOutput(ns("archive_replay_choice")),
     # Replicates are fixed by the locked protocol, not chosen here, so there is
     # no corpus-replicates control; the cost estimate reads protocol$replicates.
+    shiny::checkboxInput(
+      ns("correction_srs"),
+      shiny::tagList(
+        "The audited (holdout) units are a random subsample of this corpus ",
+        help_tip(paste(
+          "The corrected prevalences use the survey-sampling difference",
+          "estimator, which is justified only for a random subsample; a",
+          "balanced or convenience audit biases it in an unknowable",
+          "direction. Coding proceeds either way; only the correction",
+          "waits for this confirmation."))
+      ),
+      value = FALSE
+    ),
     shiny::numericInput(ns("correction_conf"), "Correction confidence", value = 0.95, min = 0.5, max = 0.99, step = 0.01),
     DT::DTOutput(ns("corpus_preview")),
     shiny::uiOutput(ns("correction_warnings")),

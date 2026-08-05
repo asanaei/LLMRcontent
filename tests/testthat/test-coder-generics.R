@@ -31,7 +31,7 @@ test_that("LLMR diagnostics and tibble coercion dispatch on gold corrections", {
 
   corpus <- data.frame(text = g$data[[g$text]], stringsAsFactors = FALSE)
   coded <- code_corpus(corpus, pl, "text", .runner = fake_runner_perfect)
-  correction <- suppressWarnings(gold_correct(coded, g))
+  correction <- suppressWarnings(gold_correct(coded, g, design = "srs"))
 
   diag <- LLMR::diagnostics(correction)
   tab <- tibble::as_tibble(correction)

@@ -42,7 +42,7 @@ gold_correct_fixture <- function(seal_holdout = TRUE, parse_failure = FALSE,
 
 test_that("gold_correct arithmetic matches the difference estimator", {
   fx <- gold_correct_fixture()
-  res <- gold_correct(fx$coded, fx$gold)
+  res <- gold_correct(fx$coded, fx$gold, design = "srs")
   tab <- res$table
   a <- tab[tab$category == "A", ]
   b <- tab[tab$category == "B", ]
@@ -64,7 +64,7 @@ test_that("gold_correct arithmetic matches the difference estimator", {
 
 test_that("gold_correct moves the estimate toward the corpus truth", {
   fx <- gold_correct_fixture()
-  res <- gold_correct(fx$coded, fx$gold)
+  res <- gold_correct(fx$coded, fx$gold, design = "srs")
   a <- res$table[res$table$category == "A", ]
   truth_a <- mean(fx$truth == "A")
   expect_lt(abs(a$share_corrected - truth_a), abs(a$share_naive - truth_a))
@@ -73,25 +73,25 @@ test_that("gold_correct moves the estimate toward the corpus truth", {
 test_that("gold_correct ledgers test-split use only when sealed", {
   sealed <- gold_correct_fixture(seal_holdout = TRUE)
   expect_equal(nrow(gold_ledger(sealed$gold)), 0L)
-  gold_correct(sealed$coded, sealed$gold)
+  gold_correct(sealed$coded, sealed$gold, design = "srs")
   expect_equal(nrow(gold_ledger(sealed$gold)), 1L)
   expect_equal(gold_ledger(sealed$gold)$accuracy, 16 / 20)
 
   unsealed <- gold_correct_fixture(seal_holdout = FALSE)
-  gold_correct(unsealed$coded, unsealed$gold)
+  gold_correct(unsealed$coded, unsealed$gold, design = "srs")
   expect_equal(nrow(gold_ledger(unsealed$gold)), 0L)
 })
 
 test_that("gold_correct aborts when no gold units match the corpus", {
   fx <- gold_correct_fixture(unmatched = TRUE)
   expect_warning(
-    expect_error(gold_correct(fx$coded, fx$gold), "audited units must be part"),
+    expect_error(gold_correct(fx$coded, fx$gold, design = "srs"), "audited units must be part"),
     "did not match")
 })
 
 test_that("gold_correct counts NA corpus labels and excluded audit pairs", {
   fx <- gold_correct_fixture(parse_failure = TRUE)
-  expect_warning(res <- gold_correct(fx$coded, fx$gold), "NA corpus label")
+  expect_warning(res <- gold_correct(fx$coded, fx$gold, design = "srs"), "NA corpus label")
   expect_equal(res$n_parse_failures, 1L)
   expect_equal(res$n_audit_parse_failures, 1L)
   expect_equal(res$n_corpus, 39L)
@@ -100,7 +100,7 @@ test_that("gold_correct counts NA corpus labels and excluded audit pairs", {
 
 test_that("categories with zero corpus share still appear", {
   fx <- gold_correct_fixture()
-  res <- gold_correct(fx$coded, fx$gold)
+  res <- gold_correct(fx$coded, fx$gold, design = "srs")
   c_row <- res$table[res$table$category == "C", ]
   expect_equal(nrow(c_row), 1L)
   expect_equal(c_row$share_naive, 0)
@@ -166,14 +166,14 @@ dup_text_fixture <- function(use_id = FALSE) {
 test_that("duplicated corpus text without an id is refused, not silently first-matched", {
   fx <- dup_text_fixture(use_id = FALSE)
   expect_error(
-    gold_correct(fx$coded, fx$gold),
+    gold_correct(fx$coded, fx$gold, design = "srs"),
     "duplicated in the corpus"
   )
 })
 
 test_that("an explicit shared id disambiguates duplicated text", {
   fx <- dup_text_fixture(use_id = TRUE)
-  res <- suppressWarnings(gold_correct(fx$coded, fx$gold))
+  res <- suppressWarnings(gold_correct(fx$coded, fx$gold, design = "srs"))
   expect_s3_class(res, "gold_correction")
   expect_identical(res$link_by, "id")
   # both duplicate units were audited (12 audit pairs total)
@@ -186,7 +186,7 @@ test_that("id linkage survives reordered corpus rows", {
   shuffled$data <- fx$coded$data[
     rev(seq_len(nrow(fx$coded$data))), , drop = FALSE
   ]
-  res <- suppressWarnings(gold_correct(shuffled, fx$gold))
+  res <- suppressWarnings(gold_correct(shuffled, fx$gold, design = "srs"))
   expect_identical(res$link_by, "id")
   expect_equal(res$n_audit, 12L)
 })
@@ -199,7 +199,7 @@ test_that("duplicated corpus ids are refused, not silently first-matched (regres
   dup <- fx$coded
   dup$data <- rbind(fx$coded$data, fx$coded$data[1, , drop = FALSE])
   expect_error(
-    gold_correct(dup, fx$gold),
+    gold_correct(dup, fx$gold, design = "srs"),
     "duplicated in the coded corpus"
   )
 })

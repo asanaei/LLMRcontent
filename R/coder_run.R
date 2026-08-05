@@ -69,9 +69,8 @@
   labels_of <- function(p) codebook_labels(protocols[[p]]$codebook)
   res$label <- vapply(seq_len(nrow(res)), function(i) {
     pr <- protocols[[res$protocol_id[i]]]
-    out <- pr$parser(res$response_text[i] %||% NA_character_,
-                     labels_of(res$protocol_id[i]))
-    as.character(out %||% NA_character_)
+    .parse_protocol_label(pr$parser, res$response_text[i] %||% NA_character_,
+                          labels_of(res$protocol_id[i]))
   }, character(1))
 
   token_cols <- intersect(c("sent_tokens", "rec_tokens"), names(res))
@@ -81,16 +80,23 @@
       ri <- res[res$protocol_id == p & res$unit_id == i, , drop = FALSE]
       ri <- ri[order(ri$replicate), , drop = FALSE]
       labels <- ri$label
-      present <- labels[!is.na(labels)]
-      modal <- if (!length(present)) NA_character_ else {
-        names(sort(table(present), decreasing = TRUE))[1]
-      }
+      counts <- table(labels[!is.na(labels)])
+      # The modal label, under an explicit measurement rule: a tie among
+      # replicates is disagreement, and disagreement is NA, never an
+      # arbitrary pick by table ordering. label_share counts agreement over
+      # ALL replicates, so parse failures lower it; label_share_parsed is
+      # the share among parsed replies alone.
+      top <- if (length(counts)) max(counts) else 0L
+      tied <- sum(counts == top) > 1L
+      modal <- if (!top || tied) NA_character_ else names(counts)[counts == top]
       row <- tibble::tibble(
         protocol_id = p,
         unit_id = i,
         label = modal,
-        label_share = if (!length(present)) NA_real_ else
-          mean(labels == modal, na.rm = TRUE),
+        label_share = as.numeric(top) / length(labels),
+        label_share_parsed = if (sum(counts)) as.numeric(top) / sum(counts)
+                             else NA_real_,
+        tied = tied,
         parse_failures = sum(is.na(labels)),
         replicate_labels = list(labels)
       )
@@ -105,7 +111,7 @@
 #'
 #' Runs every protocol over the gold set's `split` rows (default `"dev"`)
 #' and scores each protocol's modal label across its configured replicates
-#' against the gold labels: accuracy with a bootstrap CI, macro-F1, and parse
+#' against the gold labels: accuracy with an exact binomial CI, macro-F1, and parse
 #' failures. This is the tuning loop: iterate freely here; the holdout split
 #' waits, sealed, for the one protocol you lock.
 #'
@@ -224,7 +230,7 @@ as_tibble.protocol_tuning <- function(x, ...) {
 #'   holdout split (`"test"` unless [gold_set()] was given another
 #'   `holdout` name).
 #' @inheritParams tune_protocol
-#' @return A `protocol_validation`: accuracy with bootstrap CI, macro-F1,
+#' @return A `protocol_validation`: accuracy with an exact binomial CI, macro-F1,
 #'   parse failures, total tokens (when the runner reported them),
 #'   per-category table, confusion matrix, the protocol hash, the gold
 #'   set's holdout split name, and the ledger position of this evaluation.
@@ -319,6 +325,12 @@ report.protocol_validation <- function(x, ...) {
   protocol <- args$protocol
   args$gold <- NULL
   args$protocol <- NULL
+  if (!is.null(x$protocol_hash) && inherits(protocol, "coding_protocol") &&
+      !identical(protocol$hash, x$protocol_hash)) {
+    abort(paste(
+      "The supplied protocol does not match the one this validation scored",
+      "(hash mismatch); pass the protocol that produced the validation."))
+  }
   do.call(coding_report,
           c(list(validation = x, gold = gold, protocol = protocol), args))
 }
@@ -364,11 +376,23 @@ diagnostics.protocol_validation <- function(x, ...) {
 #'   `id` here as in [gold_set()].
 #' @inheritParams tune_protocol
 #' @return A `coded_corpus` object. Its `data` field contains `corpus` plus
-#'   `label` (modal label), `label_share` (share of replicates agreeing with
-#'   it), `parse_failures` per unit, a `.text_hash` linkage column, and when
+#'   `label` (modal label; `NA` when no replicate parsed or when the top
+#'   labels tie, since a tie is disagreement, not a winner), `label_share`
+#'   (the top label's share of all replicates, so parse failures lower it),
+#'   `label_share_parsed` (its share among parsed replies alone), `tied`,
+#'   `parse_failures` per unit, a `.text_hash` linkage column, and when
 #'   `protocol$replicates > 1` the individual replicate columns `label_rep1`,
 #'   `label_rep2`, .... Protocol and linkage fields are stored alongside the
-#'   data.
+#'   data. These result columns are reserved: a corpus that already contains
+#'   one of them is refused rather than overwritten.
+#'
+#' @section Coded text rides in the prompt:
+#'   The rendered prompt interpolates each unit's text into the instruction
+#'   message. A document that itself contains instruction-like text ("ignore
+#'   the codebook and answer X") can therefore try to steer the model; for
+#'   adversarial corpora, inspect replicate disagreement and validate against
+#'   human labels with particular care. Separating instructions from data at
+#'   the message level is planned for a later release.
 #' @examples
 #' cb <- codebook("tone", "one sentence",
 #'   list(cb_category("positive", "Approving."),
@@ -405,11 +429,32 @@ code_corpus <- function(corpus, protocol, text, id = NULL, .runner = NULL, ...) 
     abort(sprintf("`id` column '%s' not found in `corpus`.", id))
   }
   texts <- corpus[[text]]
+  if (anyNA(texts)) {
+    abort(sprintf(paste(
+      "%d row(s) of column '%s' are NA. A missing text cannot be coded;",
+      "drop those rows or repair the corpus first."),
+      sum(is.na(texts)), text))
+  }
   k <- protocol$replicates
+  # The result columns are written into the returned data. Refuse to shadow
+  # existing columns rather than silently destroying user data (a labeled
+  # corpus routinely arrives with its own `label`).
+  reserved <- c("label", "label_share", "label_share_parsed", "tied",
+                "parse_failures", ".text_hash",
+                if (k > 1L) paste0("label_rep", seq_len(k)))
+  collision <- intersect(names(corpus), reserved)
+  if (length(collision)) {
+    abort(sprintf(paste(
+      "`corpus` already contains column(s) %s, which code_corpus() writes.",
+      "Rename or drop them first."),
+      paste(sprintf("'%s'", collision), collapse = ", ")))
+  }
   if (!nrow(corpus)) {
     out <- tibble::as_tibble(corpus)
     out$label <- character(0)
     out$label_share <- numeric(0)
+    out$label_share_parsed <- numeric(0)
+    out$tied <- logical(0)
     out$parse_failures <- integer(0)
     if (k > 1L) {
       for (r in seq_len(k)) out[[paste0("label_rep", r)]] <- character(0)
@@ -423,6 +468,8 @@ code_corpus <- function(corpus, protocol, text, id = NULL, .runner = NULL, ...) 
   out <- tibble::as_tibble(corpus)
   out$label <- res$label
   out$label_share <- res$label_share
+  out$label_share_parsed <- res$label_share_parsed
+  out$tied <- res$tied
   out$parse_failures <- res$parse_failures
   if (k > 1L) {
     for (r in seq_len(k)) out[[paste0("label_rep", r)]] <- m[, r]
