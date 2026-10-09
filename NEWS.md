@@ -6,6 +6,10 @@
   an infinite estimate passed as valid. Permutation placebos report failures in
   the same way.
 
+* In the Studio, the "most common label is the target" estimand is undefined
+  when no label parsed or the top labels tie. It used to return 0 in both cases,
+  breaking ties alphabetically.
+
 # LLMRcontent 0.2.1
 
 Corrections from an external methodological review of 0.2.0 (never on CRAN).

@@ -24,9 +24,14 @@ make_estimator <- function(kind, target, other = NULL) {
     share = function(d) mean(d$label == target, na.rm = TRUE),
     diff  = function(d) mean(d$label == target, na.rm = TRUE) -
                         mean(d$label == other, na.rm = TRUE),
+    # Undefined (NA) when no label parsed or the most common label is tied, the
+    # same tie rule code_corpus() applies to replicate labels.
     mode_is = function(d) {
-      tab <- sort(table(d$label[!is.na(d$label)]), decreasing = TRUE)
-      as.numeric(length(tab) > 0 && names(tab)[1] == target)
+      tab <- table(d$label[!is.na(d$label)])
+      if (!length(tab)) return(NA_real_)
+      top <- names(tab)[tab == max(tab)]
+      if (length(top) > 1L) return(NA_real_)
+      as.numeric(top == target)
     },
     function(d) mean(d$label == target, na.rm = TRUE)
   )
