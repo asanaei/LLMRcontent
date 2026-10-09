@@ -20,8 +20,13 @@
 #' @return An `audit` object with `cells` (one row per grid cell), `units`
 #'   (the unit-level trail; see [audit_units()]), and `plan`. The `cells`
 #'   table contains `cell`, `prompt`, `model`, `label_order`, `temperature`,
-#'   `estimate`, `parse_failures`, and `tokens`. Estimator errors inside a
-#'   cell yield `estimate = NA` for that cell.
+#'   `estimate`, `estimate_status`, `estimate_note`, `parse_failures`, and
+#'   `tokens`. A usable estimate is one finite number (`estimate_status =
+#'   "ok"`). Otherwise `estimate` is `NA` and `estimate_status` says why:
+#'   `"error"` (the estimator raised an error, whose message is in
+#'   `estimate_note`), `"invalid"` (it returned something other than one finite
+#'   number, such as a vector or `Inf`), or `"missing"` (it returned `NA` or
+#'   `NaN`). Errors and invalid returns also raise a warning.
 #' @examples
 #' \dontrun{
 #' speeches <- data.frame(
@@ -132,15 +137,24 @@ audit_run <- function(plan, .runner = NULL, ...) {
     ri <- ri[order(ri$unit_id), ]
     d <- plan$data
     d$label <- ri$label
-    est <- tryCatch(as.numeric(plan$estimator(d))[1], error = function(e) NA_real_)
+    est <- .audit_estimate(plan$estimator, d)
     tok <- intersect(c("sent_tokens", "rec_tokens"), names(ri))
     tibble::tibble(
       cell = g, prompt = grid$prompt[g], model = grid$model[g],
       label_order = grid$label_order[g], temperature = grid$temperature[g],
-      estimate = est, parse_failures = sum(is.na(ri$label)),
+      estimate = est$estimate, estimate_status = est$status,
+      estimate_note = est$note, parse_failures = sum(is.na(ri$label)),
       tokens = if (length(tok)) as.integer(sum(unlist(ri[tok]), na.rm = TRUE))
                else NA_integer_)
   }))
+  broken <- out$estimate_status %in% c("error", "invalid")
+  if (any(broken)) {
+    cli::cli_warn(c(
+      sprintf("The estimator failed in %d of %d audit cell(s).", sum(broken), nrow(out)),
+      i = sprintf("First failure (cell %d): %s", out$cell[broken][1],
+                  .cli_escape(out$estimate_note[broken][1])),
+      i = "See `estimate_status` and `estimate_note` in the audit's cells."))
+  }
   ord <- order(res$cell, res$unit_id)
   units <- tibble::tibble(
     cell = as.integer(res$cell[ord]),
@@ -151,6 +165,37 @@ audit_run <- function(plan, .runner = NULL, ...) {
   )
   structure(list(cells = out, units = units, plan = plan), class = "audit")
 }
+
+# Internal: run the plan's estimator on one cell's labelled data. A usable
+# estimate is one finite number. Anything else is recorded rather than coerced
+# into a number: an error keeps its class and message ("error"); a vector, a
+# non-numeric value, or an infinite value is "invalid"; NA or NaN is "missing",
+# as when the estimator cannot use the labels it was given.
+.audit_estimate <- function(estimator, d) {
+  v <- tryCatch(estimator(d), error = function(e) e)
+  if (inherits(v, "error")) {
+    return(list(estimate = NA_real_, status = "error",
+                note = paste0(class(v)[1], ": ", conditionMessage(v))))
+  }
+  if (!(is.numeric(v) || is.logical(v)) || length(v) != 1L) {
+    return(list(estimate = NA_real_, status = "invalid",
+                note = sprintf("the estimator returned a %s of length %d, not one number",
+                               class(v)[1], length(v))))
+  }
+  v <- as.numeric(v)
+  if (is.na(v)) {
+    return(list(estimate = NA_real_, status = "missing",
+                note = "the estimator returned NA or NaN"))
+  }
+  if (!is.finite(v)) {
+    return(list(estimate = NA_real_, status = "invalid",
+                note = "the estimator returned an infinite value"))
+  }
+  list(estimate = v, status = "ok", note = NA_character_)
+}
+
+# Internal: protect braces in free text passed to cli, which reads them as glue.
+.cli_escape <- function(x) gsub("}", "}}", gsub("{", "{{", x, fixed = TRUE), fixed = TRUE)
 
 #' @export
 print.audit <- function(x, ...) {
@@ -576,11 +621,13 @@ audit_placebo <- function(audit, type = c("label_permutation", "irrelevant_text"
       abort(sprintf("Unit labels do not match the plan's data for cell %s.", g))
     }
     perm <- rep(NA_real_, reps)
+    perm_note <- NA_character_
     d <- plan$data
     for (r in seq_len(reps)) {
       d$label <- sample(labels)
-      perm[r] <- tryCatch(as.numeric(plan$estimator(d))[1],
-                          error = function(e) NA_real_)
+      pe <- .audit_estimate(plan$estimator, d)
+      perm[r] <- pe$estimate
+      if (!identical(pe$status, "ok") && is.na(perm_note)) perm_note <- pe$note
     }
     ok <- !is.na(perm)
     obs <- as.numeric(cells$estimate[i])[1]
@@ -602,9 +649,16 @@ audit_placebo <- function(audit, type = c("label_permutation", "irrelevant_text"
       label_order = cells$label_order[i], temperature = cells$temperature[i],
       estimate = obs, p = p, null_lo = null_lo, null_hi = null_hi,
       degenerate = degenerate,
-      n_perm_ok = sum(ok), n_perm_failed = sum(!ok))
+      n_perm_ok = sum(ok), n_perm_failed = sum(!ok), perm_note = perm_note)
   }
-  do.call(rbind, rows)
+  out <- do.call(rbind, rows)
+  if (any(out$n_perm_failed > 0L)) {
+    cli::cli_warn(c(
+      sprintf("%d permutation estimate(s) produced no usable value and were excluded.",
+              sum(out$n_perm_failed)),
+      i = sprintf("First reason: %s", .cli_escape(stats::na.omit(out$perm_note)[1]))))
+  }
+  out
 }
 
 #' @export
@@ -621,7 +675,7 @@ print.audit_placebo <- function(x, ...) {
     }
     failed <- sum(x$cells$n_perm_failed, na.rm = TRUE)
     if (failed) {
-      cat(sprintf("  %d permutation estimate(s) errored to NA and were excluded.\n",
+      cat(sprintf("  %d permutation estimate(s) produced no usable value and were excluded; see `perm_note`.\n",
                   failed))
     }
   } else {

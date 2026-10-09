@@ -55,9 +55,11 @@ test_that("estimator errors inside permutations are counted, not fatal", {
       mean(d$label[d$half == "second"] == "conservative", na.rm = TRUE)
   })
   set.seed(110)
-  pt <- audit_placebo(audit, reps = 50L)
+  expect_warning(pt <- audit_placebo(audit, reps = 50L),
+                 "permutation estimate\\(s\\) produced no usable value")
   expect_gt(pt$cells$n_perm_failed[1], 0L)
   expect_equal(pt$cells$n_perm_ok[1] + pt$cells$n_perm_failed[1], 50L)
+  expect_match(pt$cells$perm_note[1], "boom")
 })
 
 test_that("irrelevant_text returns real and placebo estimates per cell", {

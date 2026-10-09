@@ -1,3 +1,11 @@
+# LLMRcontent 0.2.2
+
+* `audit_run()` records why a cell has no estimate (`estimate_status`,
+  `estimate_note`) and warns when the estimator fails. An estimator error used
+  to become a silent `NA`, a vector estimate was cut to its first element, and
+  an infinite estimate passed as valid. Permutation placebos report failures in
+  the same way.
+
 # LLMRcontent 0.2.1
 
 Corrections from an external methodological review of 0.2.0 (never on CRAN).

@@ -20,8 +20,12 @@ column, every row must be successful. Default \code{LLMR::call_llm_par()}.}
 An \code{audit} object with \code{cells} (one row per grid cell), \code{units}
 (the unit-level trail; see \code{\link[=audit_units]{audit_units()}}), and \code{plan}. The \code{cells}
 table contains \code{cell}, \code{prompt}, \code{model}, \code{label_order}, \code{temperature},
-\code{estimate}, \code{parse_failures}, and \code{tokens}. Estimator errors inside a
-cell yield \code{estimate = NA} for that cell.
+\code{estimate}, \code{estimate_status}, \code{estimate_note}, \code{parse_failures}, and
+\code{tokens}. A usable estimate is one finite number (\code{estimate_status = "ok"}). Otherwise \code{estimate} is \code{NA} and \code{estimate_status} says why:
+\code{"error"} (the estimator raised an error, whose message is in
+\code{estimate_note}), \code{"invalid"} (it returned something other than one finite
+number, such as a vector or \code{Inf}), or \code{"missing"} (it returned \code{NA} or
+\code{NaN}). Errors and invalid returns also raise a warning.
 }
 \description{
 Crosses prompts x models x label orders x temperatures, measures every
