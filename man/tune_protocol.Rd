@@ -2,38 +2,61 @@
 % Please edit documentation in R/coder_run.R
 \name{tune_protocol}
 \alias{tune_protocol}
-\title{Tune candidate protocols on the development split}
+\title{Compare coding protocols on a development split}
 \usage{
 tune_protocol(protocols, gold, split = "dev", .runner = NULL, ...)
 }
 \arguments{
-\item{protocols}{A list of \code{\link[=protocol]{protocol()}} objects (or a single one).}
+\item{protocols}{A list of \code{\link[=protocol]{protocol()}} objects, or one protocol.}
 
 \item{gold}{A \code{\link[=gold_set]{gold_set()}}.}
 
-\item{split}{Which split to evaluate on; the gold set's holdout split
-(\code{"test"} unless \code{\link[=gold_set]{gold_set()}} was given another \code{holdout} name) is
-refused here. That is \code{\link[=validate_protocol]{validate_protocol()}}'s job, and it leaves a
-ledger entry.}
+\item{split}{Name of the split to evaluate. The default is \code{"dev"}.
+The gold set's declared holdout split is refused.}
 
-\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
-receives a data frame with \code{config} and \code{messages} list-columns and returns
-those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par()}.}
+\item{.runner}{A function accepting \verb{(experiments, ...)}. It must return
+the experiment rows with their identifying columns and a nonmissing
+\code{response_text} column. If it returns \code{success}, every value must be
+\code{TRUE}. The default runner is \code{\link[LLMR:call_llm_par]{LLMR::call_llm_par()}}.}
 
-\item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
+\item{...}{Arguments passed to the runner.}
 }
 \value{
-A \code{protocol_tuning} object with \code{table} (one row per protocol:
-\code{protocol}, \code{n}, \code{accuracy}, \code{acc_lo}, \code{acc_hi}, \code{macro_f1},
-\code{parse_failures}, and \code{tokens}), \code{per_category} (named per-protocol
-detail), and \code{split}.
+A list of class \code{protocol_tuning} with the following elements.
+\describe{
+\item{table}{A tibble with one row per protocol, ordered by decreasing
+accuracy. The columns have the following meanings.
+\itemize{
+\item \code{protocol}, the protocol label, made unique when needed.
+\item \code{n}, the number of scored units.
+\item \code{accuracy}, the proportion of correct labels.
+\item \code{acc_lo} and \code{acc_hi}, the limits of the exact 95 percent
+binomial confidence interval.
+\item \code{macro_f1}, the mean category F1 score, with undefined
+category scores counted as zero.
+\item \code{parse_failures}, the number of missing modal labels.
+\item \code{tokens}, the subtotal of known token totals.
+}}
+\item{per_category}{Category-level scores, named by the protocol
+labels used in \code{table}.}
+\item{split}{The evaluated split name.}
+\item{usage}{A tibble in the same protocol order as \code{table}, with
+columns \code{protocol}, \code{calls} (model calls, replicates included), and
+\code{tokens_unknown} (calls that reported no usage).}
+}
 }
 \description{
-Runs every protocol over the gold set's \code{split} rows (default \code{"dev"})
-and scores each protocol's modal label across its configured replicates
-against the gold labels: accuracy with an exact binomial CI, macro-F1, and parse
-failures. This is the tuning loop: iterate freely here; the holdout split
-waits, sealed, for the one protocol you lock.
+Applies candidate protocols to a gold-set split and compares their labels
+with the gold labels. Each protocol uses its configured replicate count
+and modal-label rule.
+}
+\details{
+The gold set's declared holdout split cannot be used for tuning.
+
+A call's tokens are the runner's \code{total_tokens}, or \code{sent_tokens} plus
+\code{rec_tokens} when both are reported. \code{tokens} sums the calls that reported
+usage and is \code{NA} when none did; counts that are not nonnegative whole
+numbers are treated as unreported, with a warning.
 }
 \examples{
 \dontrun{
@@ -43,6 +66,7 @@ cb <- codebook("tone", "one sentence",
 gold_data <- data.frame(
   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
   label = rep(c("positive", "negative"), each = 10))
+set.seed(110)
 g  <- gold_set(gold_data, text = "text", label = "label",
                split = c(dev = 0.5, test = 0.5))
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)

@@ -18,7 +18,7 @@ test_that("tuning ranks protocols and refuses the test split", {
     })
 
   expect_s3_class(res, "protocol_tuning")
-  expect_named(res, c("table", "per_category", "split"))
+  expect_named(res, c("table", "per_category", "split", "usage"))
   expect_identical(res$table$protocol[1], "good")
   expect_equal(res$table$accuracy[res$table$protocol == "good"], 1)
   expect_lt(res$table$accuracy[res$table$protocol == "always-pos"], 1)
@@ -353,4 +353,35 @@ test_that("experiments carry the raw unit text as a metadata column", {
                           .runner = spy))
   expect_false(is.null(seen))
   expect_true(all(seen %in% g$data$text))
+})
+
+test_that("usage follows ranked protocols with duplicate labels and distinct replicate counts", {
+  g <- fix_gold(8)
+  protocols <- lapply(1:3, function(k) {
+    protocol(fix_codebook(), fix_config(), label = "candidate", replicates = k)
+  })
+  runner <- function(experiments, ...) {
+    out <- fake_runner_perfect(experiments)
+    invert <- out$protocol_id == 1L
+    out$response_text[invert] <- ifelse(out$response_text[invert] == "positive",
+                                        "negative", "positive")
+    out$response_text[out$protocol_id == 2L] <- "positive"
+    out$sent_tokens <- out$protocol_id * 10
+    out
+  }
+  out <- tune_protocol(protocols, g, .runner = runner)
+  expect_named(out, c("table", "per_category", "split", "usage"))
+  expect_named(out$table, c("protocol", "n", "accuracy", "acc_lo", "acc_hi",
+                            "macro_f1", "parse_failures", "tokens"))
+  expect_named(out$usage, c("protocol", "calls", "tokens_unknown"))
+  expect_identical(out$usage$protocol, c("candidate.2", "candidate.1", "candidate"))
+  expect_identical(out$usage$protocol, out$table$protocol)
+  expect_identical(out$usage$calls, c(12L, 8L, 4L))
+  expect_identical(out$usage$tokens_unknown, c(0L, 0L, 0L))
+  expect_identical(out$table$tokens, c(384, 176, 48))
+  shown <- .content_tuning_table(out)
+  expect_named(shown, c(names(out$table), "calls", "tokens_unknown"))
+  expect_identical(shown$calls, out$usage$calls)
+  expect_identical(shown$tokens_unknown, out$usage$tokens_unknown)
+  expect_identical(shown[names(out$table)], out$table)
 })

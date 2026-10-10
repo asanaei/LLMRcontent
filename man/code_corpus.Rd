@@ -18,11 +18,12 @@ it through so \code{\link[=gold_correct]{gold_correct()}} can link audit units t
 the only way to disambiguate rows that share identical text. Use the same
 \code{id} here as in \code{\link[=gold_set]{gold_set()}}.}
 
-\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
-receives a data frame with \code{config} and \code{messages} list-columns and returns
-those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par()}.}
+\item{.runner}{A function accepting \verb{(experiments, ...)}. It must return
+the experiment rows with their identifying columns and a nonmissing
+\code{response_text} column. If it returns \code{success}, every value must be
+\code{TRUE}. The default runner is \code{\link[LLMR:call_llm_par]{LLMR::call_llm_par()}}.}
 
-\item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
+\item{...}{Arguments passed to the runner.}
 }
 \value{
 A \code{coded_corpus} object. Its \code{data} field contains \code{corpus} plus

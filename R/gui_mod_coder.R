@@ -120,20 +120,6 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       invisible(FALSE)
     }
 
-    add_result_usage <- function(result, fallback_calls) {
-      counts <- extract_token_counts(result, fallback_calls = fallback_calls)
-      if (identical(shared$mode(), "demo")) {
-        if (!is.null(counts$calls)) {
-          counts$result_rows <- as.integer(counts$calls)
-        }
-        counts$calls <- NULL
-        counts$sent <- 0L
-        counts$received <- 0L
-        counts$total <- 0L
-      }
-      shared$add_usage(counts)
-    }
-
     plan_label <- function(task, calls) {
       sprintf(
         paste0(
@@ -1040,6 +1026,9 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       )
 
       if (!res$ok) {
+        if (length(call_batches)) {
+          add_call_usage(shared, bind_call_batches(call_batches), 0L)
+        }
         run_error(res$ui)
         return()
       }
@@ -1048,7 +1037,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       reset_lock_state()
       tuning(out)
       tuning_timing(finish_call_timing(call_batches, started))
-      add_result_usage(tibble::as_tibble(out), fallback_calls = planned)
+      add_call_usage(shared, bind_call_batches(call_batches), planned)
       run_error(NULL)
     }
 
@@ -1066,7 +1055,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
         shiny::need(!is.null(tuning()), "Run tuning to compare the protocol candidates.")
       )
       .content_datatable(
-        tibble::as_tibble(tuning()),
+        .content_tuning_table(tuning()),
         digits = 3,
         caption = "Development-split performance used for protocol tuning",
         rownames = FALSE,
@@ -1251,6 +1240,9 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       )
 
       if (!res$ok) {
+        if (length(call_batches)) {
+          add_call_usage(shared, bind_call_batches(call_batches), 0L)
+        }
         run_error(res$ui)
         return()
       }
@@ -1258,7 +1250,7 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       out <- if (identical(shared$mode(), "demo")) annotate_demo_result(res$value) else res$value
       validation(out)
       validation_timing(finish_call_timing(call_batches, started))
-      add_result_usage(out, fallback_calls = planned)
+      add_call_usage(shared, bind_call_batches(call_batches), planned)
       run_error(NULL)
     }
 
@@ -1641,6 +1633,13 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       )
 
       if (!res$ok) {
+        if (length(call_batches)) {
+          add_call_usage(shared, if (use_archive) {
+            annotate_demo_result(bind_call_batches(call_batches))
+          } else {
+            bind_call_batches(call_batches)
+          }, 0L)
+        }
         run_error(res$ui)
         return()
       }
@@ -1656,9 +1655,9 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
       artifacts$coded <- out
       artifacts$coded_calls <- call_results
       if (use_archive) {
-        shared$add_usage(list(result_rows = NROW(call_results)))
+        add_call_usage(shared, annotate_demo_result(call_results), 0L)
       } else {
-        add_result_usage(out, fallback_calls = planned)
+        add_call_usage(shared, call_results, planned)
       }
 
       warns <- character()
@@ -2213,4 +2212,14 @@ coder_download_ui <- function(ns, coded = NULL, validation = NULL) {
     shiny::tags$h4("Methods report"),
     text_block_output(ns("download_report"), height = "20rem")
   )
+}
+
+# Add usage qualifications by row order without changing the stored table.
+.content_tuning_table <- function(tuning) {
+  out <- tibble::as_tibble(tuning)
+  if (!is.null(tuning$usage)) {
+    out$calls <- tuning$usage$calls
+    out$tokens_unknown <- tuning$usage$tokens_unknown
+  }
+  out
 }

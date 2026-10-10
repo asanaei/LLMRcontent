@@ -91,9 +91,35 @@ bind_call_batches <- function(batches) {
   if (!length(batches)) return(NULL)
   batches <- Filter(is.data.frame, batches)
   if (!length(batches)) return(NULL)
-  out <- do.call(rbind, batches)
+  out <- .bind_call_rows(batches)
   rownames(out) <- NULL
   out
+}
+
+# Account for returned calls without allowing an accounting failure to
+# discard a completed result or terminate its observer.
+add_call_usage <- function(shared, calls, fallback_calls) {
+  tryCatch({
+    counts <- extract_token_counts(calls, fallback_calls = fallback_calls)
+    if (identical(shared$mode(), "demo")) {
+      counts$result_rows <- as.integer((counts$result_rows %||% 0L) +
+                                        (counts$calls %||% 0L))
+      counts$calls <- NULL
+      counts$sent <- 0
+      counts$received <- 0
+      counts$total <- 0
+      counts$unknown <- 0L
+      counts$sent_unknown <- 0L
+      counts$received_unknown <- 0L
+    }
+    shared$add_usage(counts)
+  }, error = function(e) {
+    text <- paste0("Token usage could not be counted: ", conditionMessage(e))
+    tryCatch(shiny::showNotification(text, type = "warning"),
+             error = function(e) NULL)
+    tryCatch(message(text), error = function(e) NULL)
+    invisible(NULL)
+  })
 }
 
 finish_call_timing <- function(batches, started) {

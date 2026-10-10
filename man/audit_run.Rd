@@ -2,37 +2,61 @@
 % Please edit documentation in R/valid_run.R
 \name{audit_run}
 \alias{audit_run}
-\title{Run the audit grid}
+\title{Run an audit grid}
 \usage{
 audit_run(plan, .runner = NULL, ...)
 }
 \arguments{
-\item{plan}{An \code{\link[=audit_plan]{audit_plan()}} with at least one model.}
+\item{plan}{An \code{\link[=audit_plan]{audit_plan()}} containing at least one model.}
 
-\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
-receives a data frame with \code{config} and \code{messages} list-columns and returns
-those rows with at least \code{response_text}. When it returns a \code{success}
-column, every row must be successful. Default \code{LLMR::call_llm_par()}.}
+\item{.runner}{A function accepting \verb{(experiments, ...)}. It must return
+the experiment rows with their identifying columns and a nonmissing
+\code{response_text} column. If it returns \code{success}, every value must be
+\code{TRUE}. The default runner is \code{\link[LLMR:call_llm_par]{LLMR::call_llm_par()}}.}
 
-\item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
+\item{...}{Arguments passed to the runner.}
 }
 \value{
-An \code{audit} object with \code{cells} (one row per grid cell), \code{units}
-(the unit-level trail; see \code{\link[=audit_units]{audit_units()}}), and \code{plan}. The \code{cells}
-table contains \code{cell}, \code{prompt}, \code{model}, \code{label_order}, \code{temperature},
-\code{estimate}, \code{estimate_status}, \code{estimate_note}, \code{parse_failures}, and
-\code{tokens}. A usable estimate is one finite number (\code{estimate_status = "ok"}). Otherwise \code{estimate} is \code{NA} and \code{estimate_status} says why:
-\code{"error"} (the estimator raised an error, whose message is in
-\code{estimate_note}), \code{"invalid"} (it returned something other than one finite
-number, such as a vector or \code{Inf}), or \code{"missing"} (it returned \code{NA} or
-\code{NaN}). Errors and invalid returns also raise a warning.
+A list of class \code{audit} with the following elements.
+\describe{
+\item{cells}{A tibble with one row per grid cell.}
+\item{units}{The unit-level label and response-ID table returned by
+\code{\link[=audit_units]{audit_units()}}.}
+\item{plan}{The supplied audit plan.}
+}
+
+The \code{cells} columns have the following meanings.
+\itemize{
+\item \code{cell}, the grid-cell number.
+\item \code{prompt}, the prompt variant name.
+\item \code{model}, the model name in the plan.
+\item \code{label_order}, the label-order setting.
+\item \code{temperature}, the temperature setting.
+\item \code{estimate}, the estimator's value, or \code{NA}.
+\item \code{estimate_status}, the outcome of evaluating the estimator.
+\item \code{estimate_note}, a description of an unsuccessful evaluation,
+or \code{NA} for a usable estimate.
+\item \code{parse_failures}, the number of unparsed labels.
+\item \code{tokens}, the subtotal of known token totals.
+\item \code{tokens_unknown}, the number of calls that reported no usage.
+}
+
+A finite numeric or logical scalar gives status \code{"ok"}; logical values
+are converted to numbers. A scalar \code{NA} or \code{NaN} gives \code{"missing"}.
+An estimator error gives \code{"error"}, and another return value gives
+\code{"invalid"}. Errors and invalid returns also produce a warning.
 }
 \description{
-Crosses prompts x models x label orders x temperatures, measures every
-unit under every cell, recomputes the estimator per cell, and returns the
-audit object the stability functions consume. Cell 1 -- baseline prompt,
-first model, \code{"as_given"}, first temperature -- is the reference for
-\code{\link[=audit_fragility]{audit_fragility()}}.
+Codes every data unit under each combination in an audit plan and
+evaluates the plan's estimator for each grid cell.
+}
+\details{
+The grid crosses prompt variants with models, label orders, and
+temperatures. Cell 1 uses the first value of each dimension and is the
+default reference for \code{\link[=audit_fragility]{audit_fragility()}}.
+
+Tokens are counted as in \code{\link[=tune_protocol]{tune_protocol()}}: each cell's \code{tokens} sums the
+calls that reported usage and is \code{NA} when none did.
 }
 \examples{
 \dontrun{

@@ -23,7 +23,7 @@ presentation.
 }
 \details{
 The GUI is optional. It needs the suggested packages shiny, bslib, DT, and
-LLMR.shiny. Install them with
+LLMR.shiny (>= 0.1.3). Install them with
 \code{install.packages(c("shiny", "bslib", "DT", "LLMR.shiny"))}.
 Install ggplot2 to draw the optional figures.
 Live runs read provider API keys from environment variables only, never

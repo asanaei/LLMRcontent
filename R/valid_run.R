@@ -3,30 +3,53 @@
 # runner call for the whole grid (LLMR::call_llm_par by default; injectable
 # for offline tests).
 
-#' Run the audit grid
+#' Run an audit grid
 #'
-#' Crosses prompts x models x label orders x temperatures, measures every
-#' unit under every cell, recomputes the estimator per cell, and returns the
-#' audit object the stability functions consume. Cell 1 -- baseline prompt,
-#' first model, `"as_given"`, first temperature -- is the reference for
-#' [audit_fragility()].
+#' Codes every data unit under each combination in an audit plan and
+#' evaluates the plan's estimator for each grid cell.
 #'
-#' @param plan An [audit_plan()] with at least one model.
-#' @param .runner Offline runner seam: a function `(experiments, ...)` that
-#'   receives a data frame with `config` and `messages` list-columns and returns
-#'   those rows with at least `response_text`. When it returns a `success`
-#'   column, every row must be successful. Default `LLMR::call_llm_par()`.
-#' @param ... Passed to the runner (e.g. `tries`, `progress`).
-#' @return An `audit` object with `cells` (one row per grid cell), `units`
-#'   (the unit-level trail; see [audit_units()]), and `plan`. The `cells`
-#'   table contains `cell`, `prompt`, `model`, `label_order`, `temperature`,
-#'   `estimate`, `estimate_status`, `estimate_note`, `parse_failures`, and
-#'   `tokens`. A usable estimate is one finite number (`estimate_status =
-#'   "ok"`). Otherwise `estimate` is `NA` and `estimate_status` says why:
-#'   `"error"` (the estimator raised an error, whose message is in
-#'   `estimate_note`), `"invalid"` (it returned something other than one finite
-#'   number, such as a vector or `Inf`), or `"missing"` (it returned `NA` or
-#'   `NaN`). Errors and invalid returns also raise a warning.
+#' @details
+#' The grid crosses prompt variants with models, label orders, and
+#' temperatures. Cell 1 uses the first value of each dimension and is the
+#' default reference for [audit_fragility()].
+#'
+#' Tokens are counted as in [tune_protocol()]: each cell's `tokens` sums the
+#' calls that reported usage and is `NA` when none did.
+#'
+#' @param plan An [audit_plan()] containing at least one model.
+#' @param .runner A function accepting `(experiments, ...)`. It must return
+#'   the experiment rows with their identifying columns and a nonmissing
+#'   `response_text` column. If it returns `success`, every value must be
+#'   `TRUE`. The default runner is [LLMR::call_llm_par()].
+#' @param ... Arguments passed to the runner.
+#' @return A list of class `audit` with the following elements.
+#'   \describe{
+#'     \item{cells}{A tibble with one row per grid cell.}
+#'     \item{units}{The unit-level label and response-ID table returned by
+#'       [audit_units()].}
+#'     \item{plan}{The supplied audit plan.}
+#'   }
+#'
+#'   The `cells` columns have the following meanings.
+#'   \itemize{
+#'     \item `cell`, the grid-cell number.
+#'     \item `prompt`, the prompt variant name.
+#'     \item `model`, the model name in the plan.
+#'     \item `label_order`, the label-order setting.
+#'     \item `temperature`, the temperature setting.
+#'     \item `estimate`, the estimator's value, or `NA`.
+#'     \item `estimate_status`, the outcome of evaluating the estimator.
+#'     \item `estimate_note`, a description of an unsuccessful evaluation,
+#'       or `NA` for a usable estimate.
+#'     \item `parse_failures`, the number of unparsed labels.
+#'     \item `tokens`, the subtotal of known token totals.
+#'     \item `tokens_unknown`, the number of calls that reported no usage.
+#'   }
+#'
+#'   A finite numeric or logical scalar gives status `"ok"`; logical values
+#'   are converted to numbers. A scalar `NA` or `NaN` gives `"missing"`.
+#'   An estimator error gives `"error"`, and another return value gives
+#'   `"invalid"`. Errors and invalid returns also produce a warning.
 #' @examples
 #' \dontrun{
 #' speeches <- data.frame(
@@ -131,6 +154,7 @@ audit_run <- function(plan, .runner = NULL, ...) {
   }
   res$label <- vapply(res$response_text, .normalize_label, character(1),
                       labels = plan$labels, USE.NAMES = FALSE)
+  res$.call_tokens <- .call_tokens(res)
 
   out <- do.call(rbind, lapply(seq_len(nrow(grid)), function(g) {
     ri <- res[res$cell == g, ]
@@ -138,14 +162,13 @@ audit_run <- function(plan, .runner = NULL, ...) {
     d <- plan$data
     d$label <- ri$label
     est <- .audit_estimate(plan$estimator, d)
-    tok <- intersect(c("sent_tokens", "rec_tokens"), names(ri))
+    tok <- .token_sum(ri$.call_tokens)
     tibble::tibble(
       cell = g, prompt = grid$prompt[g], model = grid$model[g],
       label_order = grid$label_order[g], temperature = grid$temperature[g],
       estimate = est$estimate, estimate_status = est$status,
       estimate_note = est$note, parse_failures = sum(is.na(ri$label)),
-      tokens = if (length(tok)) as.integer(sum(unlist(ri[tok]), na.rm = TRUE))
-               else NA_integer_)
+      tokens = tok$tokens, tokens_unknown = tok$unknown)
   }))
   broken <- out$estimate_status %in% c("error", "invalid")
   if (any(broken)) {
@@ -201,6 +224,10 @@ audit_run <- function(plan, .runner = NULL, ...) {
 print.audit <- function(x, ...) {
   cat(sprintf("<audit | %d cell(s) | %d unit result(s) | %d failed estimate(s)>\n",
               nrow(x$cells), nrow(x$units), sum(is.na(x$cells$estimate))))
+  if ("tokens_unknown" %in% names(x$cells)) {
+    line <- .usage_unknown_line(sum(x$cells$tokens_unknown), nrow(x$units))
+    if (!is.null(line)) cat("  ", line, "\n", sep = "")
+  }
   invisible(x)
 }
 

@@ -783,7 +783,7 @@ test_that("gold split scale previews do not truncate large splits", {
 })
 
 test_that("ggplot2 is optional at GUI launch", {
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
   testthat::local_mocked_bindings(
     requireNamespace = function(package, ...) {
       !identical(package, "ggplot2")

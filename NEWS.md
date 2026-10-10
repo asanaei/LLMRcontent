@@ -1,14 +1,16 @@
 # LLMRcontent 0.2.2
 
-* `audit_run()` records why a cell has no estimate (`estimate_status`,
-  `estimate_note`) and warns when the estimator fails. An estimator error used
-  to become a silent `NA`, a vector estimate was cut to its first element, and
-  an infinite estimate passed as valid. Permutation placebos report failures in
-  the same way.
-
-* In the Studio, the "most common label is the target" estimand is undefined
-  when no label parsed or the top labels tie. It used to return 0 in both cases,
-  breaking ties alphabetically.
+* `audit_run()` records estimator outcomes in `estimate_status` and
+  `estimate_note`. Permutation placebos count unsuccessful evaluations.
+* The Studio's modal-label estimand returns `NA` when no label is parsed
+  or the most frequent labels tie.
+* Unreported token usage is unknown, not zero: tuning results gain `usage`,
+  validation results `calls` and `tokens_unknown`, and audit cells
+  `tokens_unknown`; `tokens` is `NA` when no call reported usage.
+* The archive appendix reports sent and received tokens separately and counts
+  calls with incomplete usage.
+* The Studio counts usage from the calls each run made, including runs that
+  fail, and requires LLMR.shiny 0.1.3 or later.
 
 # LLMRcontent 0.2.1
 

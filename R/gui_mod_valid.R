@@ -368,14 +368,14 @@ mod_valid_server <- function(id, shared, active = NULL) {
         }
       }
       runner <- build_runner(shared$mode(), valid_demo_responder(labs))
-      if (identical(shared$mode(), "live")) {
-        runner <- valid_progress_runner(runner)
-      }
       call_batches <- list()
       timed_runner <- function(experiments, ...) {
         result <- runner(experiments, ...)
         call_batches[[length(call_batches) + 1L]] <<- result
         result
+      }
+      if (identical(shared$mode(), "live")) {
+        timed_runner <- valid_progress_runner(timed_runner)
       }
       started <- proc.time()[["elapsed"]]
       model_name <- if (identical(shared$mode(), "demo")) {
@@ -434,7 +434,13 @@ mod_valid_server <- function(id, shared, active = NULL) {
         shared$provider()
       )
 
-      if (!res$ok) { run_error(res$ui); return() }
+      if (!res$ok) {
+        if (length(call_batches)) {
+          add_call_usage(shared, bind_call_batches(call_batches), 0L)
+        }
+        run_error(res$ui)
+        return()
+      }
       out <- if (identical(shared$mode(), "demo")) {
         annotate_demo_result(res$value)
       } else {
@@ -442,14 +448,7 @@ mod_valid_server <- function(id, shared, active = NULL) {
       }
       audit(out)
       audit_timing(finish_call_timing(call_batches, started))
-      # Usage accounting must never crash a successful run; count defensively.
-      n_calls <- tryCatch(nrow(LLMRcontent::audit_units(out)),
-                          error = function(e) NA_integer_)
-      if (identical(shared$mode(), "demo")) {
-        shared$add_usage(list(result_rows = n_calls))
-      } else {
-        shared$add_usage(list(calls = n_calls))
-      }
+      add_call_usage(shared, bind_call_batches(call_batches), planned)
     }
 
     shiny::observeEvent(input$run_audit, {

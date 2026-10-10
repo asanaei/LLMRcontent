@@ -19,7 +19,7 @@
 #' presentation.
 #'
 #' The GUI is optional. It needs the suggested packages shiny, bslib, DT, and
-#' LLMR.shiny. Install them with
+#' LLMR.shiny (>= 0.1.3). Install them with
 #' `install.packages(c("shiny", "bslib", "DT", "LLMR.shiny"))`.
 #' Install ggplot2 to draw the optional figures.
 #' Live runs read provider API keys from environment variables only, never
@@ -50,6 +50,14 @@ run_content_studio <- function(...) {
          ". Install them with install.packages(c(",
          paste(sprintf("\"%s\"", missing), collapse = ", "),
          ")), then retry.",
+         call. = FALSE)
+  }
+  installed <- utils::packageVersion("LLMR.shiny")
+  required <- "0.1.3"
+  if (installed < required) {
+    stop("The LLMRcontent GUI needs LLMR.shiny >= ", required,
+         "; installed version is ", as.character(installed),
+         ". Install it with install.packages(\"LLMR.shiny\"), then retry.",
          call. = FALSE)
   }
   invisible(TRUE)

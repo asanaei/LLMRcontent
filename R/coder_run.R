@@ -65,7 +65,7 @@
     out$replicate <- r
     out
   })
-  res <- do.call(rbind, res)
+  res <- .bind_call_rows(res)
   labels_of <- function(p) codebook_labels(protocols[[p]]$codebook)
   res$label <- vapply(seq_len(nrow(res)), function(i) {
     pr <- protocols[[res$protocol_id[i]]]
@@ -73,7 +73,7 @@
                           labels_of(res$protocol_id[i]))
   }, character(1))
 
-  token_cols <- intersect(c("sent_tokens", "rec_tokens"), names(res))
+  res$.call_tokens <- .call_tokens(res)
   rows <- list()
   for (p in seq_along(protocols)) {
     for (i in seq_along(texts)) {
@@ -100,35 +100,61 @@
         parse_failures = sum(is.na(labels)),
         replicate_labels = list(labels)
       )
-      for (col in token_cols) row[[col]] <- sum(ri[[col]], na.rm = TRUE)
+      tok <- .token_sum(ri$.call_tokens)
+      row$.calls <- tok$calls
+      row$.tokens <- tok$tokens
+      row$.tokens_unknown <- tok$unknown
       rows[[length(rows) + 1L]] <- row
     }
   }
   do.call(rbind, rows)
 }
 
-#' Tune candidate protocols on the development split
+#' Compare coding protocols on a development split
 #'
-#' Runs every protocol over the gold set's `split` rows (default `"dev"`)
-#' and scores each protocol's modal label across its configured replicates
-#' against the gold labels: accuracy with an exact binomial CI, macro-F1, and parse
-#' failures. This is the tuning loop: iterate freely here; the holdout split
-#' waits, sealed, for the one protocol you lock.
+#' Applies candidate protocols to a gold-set split and compares their labels
+#' with the gold labels. Each protocol uses its configured replicate count
+#' and modal-label rule.
 #'
-#' @param protocols A list of [protocol()] objects (or a single one).
+#' @details
+#' The gold set's declared holdout split cannot be used for tuning.
+#'
+#' A call's tokens are the runner's `total_tokens`, or `sent_tokens` plus
+#' `rec_tokens` when both are reported. `tokens` sums the calls that reported
+#' usage and is `NA` when none did; counts that are not nonnegative whole
+#' numbers are treated as unreported, with a warning.
+#'
+#' @param protocols A list of [protocol()] objects, or one protocol.
 #' @param gold A [gold_set()].
-#' @param split Which split to evaluate on; the gold set's holdout split
-#'   (`"test"` unless [gold_set()] was given another `holdout` name) is
-#'   refused here. That is [validate_protocol()]'s job, and it leaves a
-#'   ledger entry.
-#' @param .runner Offline runner seam: a function `(experiments, ...)` that
-#'   receives a data frame with `config` and `messages` list-columns and returns
-#'   those rows with at least `response_text`. Default `LLMR::call_llm_par()`.
-#' @param ... Passed to the runner (e.g. `tries`, `progress`).
-#' @return A `protocol_tuning` object with `table` (one row per protocol:
-#'   `protocol`, `n`, `accuracy`, `acc_lo`, `acc_hi`, `macro_f1`,
-#'   `parse_failures`, and `tokens`), `per_category` (named per-protocol
-#'   detail), and `split`.
+#' @param split Name of the split to evaluate. The default is `"dev"`.
+#'   The gold set's declared holdout split is refused.
+#' @param .runner A function accepting `(experiments, ...)`. It must return
+#'   the experiment rows with their identifying columns and a nonmissing
+#'   `response_text` column. If it returns `success`, every value must be
+#'   `TRUE`. The default runner is [LLMR::call_llm_par()].
+#' @param ... Arguments passed to the runner.
+#' @return A list of class `protocol_tuning` with the following elements.
+#'   \describe{
+#'     \item{table}{A tibble with one row per protocol, ordered by decreasing
+#'       accuracy. The columns have the following meanings.
+#'       \itemize{
+#'         \item `protocol`, the protocol label, made unique when needed.
+#'         \item `n`, the number of scored units.
+#'         \item `accuracy`, the proportion of correct labels.
+#'         \item `acc_lo` and `acc_hi`, the limits of the exact 95 percent
+#'           binomial confidence interval.
+#'         \item `macro_f1`, the mean category F1 score, with undefined
+#'           category scores counted as zero.
+#'         \item `parse_failures`, the number of missing modal labels.
+#'         \item `tokens`, the subtotal of known token totals.
+#'       }}
+#'     \item{per_category}{Category-level scores, named by the protocol
+#'       labels used in `table`.}
+#'     \item{split}{The evaluated split name.}
+#'     \item{usage}{A tibble in the same protocol order as `table`, with
+#'       columns `protocol`, `calls` (model calls, replicates included), and
+#'       `tokens_unknown` (calls that reported no usage).}
+#'   }
 #' @examples
 #' \dontrun{
 #' cb <- codebook("tone", "one sentence",
@@ -137,6 +163,7 @@
 #' gold_data <- data.frame(
 #'   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
 #'   label = rep(c("positive", "negative"), each = 10))
+#' set.seed(110)
 #' g  <- gold_set(gold_data, text = "text", label = "label",
 #'                split = c(dev = 0.5, test = 0.5))
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
@@ -169,23 +196,29 @@ tune_protocol <- function(protocols, gold, split = "dev",
   # prompt variants on one model) would otherwise overwrite each other.
   plabels <- make.unique(vapply(protocols, `[[`, character(1), "label"))
   per_cat <- list()
+  usage <- list()
   rows <- lapply(seq_along(protocols), function(p) {
     ri <- res[res$protocol_id == p, ]
     ri <- ri[order(ri$unit_id), ]
     sc <- .score_labels(ri$label, truth, codebook_labels(protocols[[p]]$codebook))
     ci <- .acc_ci(ri$label, truth)
     per_cat[[plabels[[p]]]] <<- sc$per_category
+    u <- .tokens_of(ri)
+    usage[[p]] <<- tibble::tibble(protocol = plabels[[p]], calls = u$calls,
+                                  tokens_unknown = u$unknown)
     tibble::tibble(
       protocol = plabels[[p]],
       n = sc$n, accuracy = sc$accuracy,
       acc_lo = ci[1], acc_hi = ci[2],
       macro_f1 = sc$macro_f1, parse_failures = sc$parse_failures,
-      tokens = .tokens_of(ri))
+      tokens = u$tokens)
   })
   table <- do.call(rbind, rows)
-  table <- table[order(-table$accuracy), ]
+  ord <- order(-table$accuracy)
+  table <- table[ord, ]
+  usage <- do.call(rbind, usage)[ord, ]
   structure(
-    list(table = table, per_category = per_cat, split = split),
+    list(table = table, per_category = per_cat, split = split, usage = usage),
     class = "protocol_tuning"
   )
 }
@@ -195,6 +228,10 @@ print.protocol_tuning <- function(x, ...) {
   cat(sprintf("<protocol_tuning | split '%s' | protocols = %d>\n",
               x$split, nrow(x$table)))
   print(x$table, ...)
+  if (!is.null(x$usage)) {
+    line <- .usage_unknown_line(sum(x$usage$tokens_unknown), sum(x$usage$calls))
+    if (!is.null(line)) cat("  ", line, "\n", sep = "")
+  }
   invisible(x)
 }
 
@@ -208,32 +245,147 @@ as_tibble.protocol_tuning <- function(x, ...) {
   tibble::as_tibble(x$table, ...)
 }
 
-# Internal: total tokens (sent + received) when the runner reported them.
-# The cost story belongs in the comparison table, not in a footnote.
-.tokens_of <- function(res) {
-  cols <- intersect(c("sent_tokens", "rec_tokens"), names(res))
-  if (!length(cols)) return(NA_integer_)
-  as.integer(sum(unlist(res[cols]), na.rm = TRUE))
+# Runner batches may omit token columns on passes with no reported usage.
+.bind_call_rows <- function(batches) {
+  columns <- unique(unlist(lapply(batches, names), use.names = FALSE))
+  batches <- lapply(batches, function(batch) {
+    for (column in setdiff(columns, names(batch))) {
+      batch[[column]] <- rep(NA, nrow(batch))
+    }
+    batch[columns]
+  })
+  do.call(rbind, batches)
 }
 
-#' Validate a locked protocol on the sealed holdout split
+# Each row carries its total and its contribution to call and missing counts.
+# Keep these together when protocol-unit rows are reduced across replicates.
+.call_tokens <- function(res) {
+  n <- nrow(res)
+  column <- function(name) {
+    v <- res[[name]]
+    if (is.null(v) || (is.logical(v) && all(is.na(v)))) return(rep(NA_real_, n))
+    if (!is.numeric(v)) {
+      cli::cli_warn(paste0(
+        "The runner's {.field {name}} column is {.cls {class(v)[[1]]}}, ",
+        "not numeric; its counts are treated as unknown."))
+      return(rep(NA_real_, n))
+    }
+    invalid <- is.nan(v) | (!is.na(v) & (!is.finite(v) | v < 0 | v != trunc(v)))
+    if (any(invalid)) {
+      cli::cli_warn("The runner's {.field {name}} column contains invalid counts; they are treated as unknown.")
+      v[invalid] <- NA_real_
+    }
+    as.double(v)
+  }
+  sent <- column("sent_tokens")
+  rec <- column("rec_tokens")
+  total <- column("total_tokens")
+  total <- ifelse(is.na(total) & !is.na(sent) & !is.na(rec), sent + rec, total)
+  follow_on <- rep(FALSE, n)
+  pack <- res[["rowpack_row"]]
+  pack_id <- res[["rowpack_id"]]
+  if (is.numeric(pack) && !is.null(pack_id)) {
+    first <- pack_id[!is.na(pack) & pack == 1 & !is.na(pack_id)]
+    follow_on <- !is.na(pack) & pack > 1 & !is.na(pack_id) & pack_id %in% first
+  }
+  data.frame(tokens = as.double(total), calls = .call_count_rows(res),
+             unknown = as.integer(is.na(total) & !follow_on))
+}
+
+# Attribute each distinct identifier to its first row. This preserves call
+# counts when several unit rows came from the same request.
+.call_count_rows <- function(res) {
+  n <- nrow(res)
+  complete <- function(id) {
+    if (is.list(id)) return(length(id) > 0L && all(vapply(id, complete, logical(1))))
+    id <- as.character(id)
+    length(id) > 0L && all(!is.na(id) & nzchar(id))
+  }
+  failed <- res[["success"]] %in% FALSE
+  if (!length(failed)) failed <- rep(FALSE, n)
+  for (column in intersect(c("call_id", "request_id", "response_id"), names(res))) {
+    ids <- lapply(res[[column]], function(id) as.character(unlist(id, use.names = FALSE)))
+    has <- vapply(res[[column]], complete, logical(1))
+    if (any(has) && all(has | failed)) {
+      ids[!has] <- rep(list(character()), sum(!has))
+      row <- rep(seq_len(n), lengths(ids))
+      first <- !duplicated(unlist(ids, use.names = FALSE))
+      return(as.integer(tabulate(row[first], nbins = n) + !has))
+    }
+  }
+  # Each runner row is one request unless shared identifiers say otherwise.
+  rep(1L, n)
+}
+
+# Sum known totals separately from the integer call and missing counts.
+.token_sum <- function(tok) {
+  list(tokens = if (nrow(tok) && all(is.na(tok$tokens))) NA_real_
+                else as.double(sum(tok$tokens, na.rm = TRUE)),
+       calls = as.integer(sum(tok$calls)),
+       unknown = as.integer(sum(tok$unknown)))
+}
+
+# Sum token subtotals and usage counts over protocol-unit rows.
+.tokens_of <- function(res) {
+  list(tokens = if (nrow(res) && all(is.na(res$.tokens))) NA_real_
+                else as.double(sum(res$.tokens, na.rm = TRUE)),
+       calls = as.integer(sum(res$.calls)),
+       unknown = as.integer(sum(res$.tokens_unknown)))
+}
+
+# Internal: the print line for calls whose usage is unknown, or NULL.
+.usage_unknown_line <- function(unknown, calls) {
+  if (!isTRUE(unknown > 0L)) return(NULL)
+  if (unknown == calls) {
+    return(sprintf("token usage unknown for all %d call(s)", calls))
+  }
+  sprintf("token usage unknown for %d of %d call(s); `tokens` sums the rest",
+          unknown, calls)
+}
+
+#' Validate a coding protocol against gold labels
 #'
-#' Evaluates one locked protocol on the sealed holdout split. The lock identifies
-#' the evaluated instrument by its hash. The function applies the configured
-#' replicate count and modal-label rule, and when the gold set was built with
-#' `seal_holdout = TRUE`, appends the event to the ledger. Each holdout-split
-#' evaluation then appears in `LLMR::report()`.
+#' Applies one protocol to a gold-set split and compares its modal labels
+#' with the gold labels.
 #'
-#' @param protocol A **locked** [protocol()].
+#' @details
+#' Evaluation on the declared holdout split requires a locked protocol.
+#' A locked protocol must still match its stored hash. Evaluation on
+#' another split may use an unlocked protocol.
+#'
+#' An evaluation on the holdout split is appended to the gold set's ledger
+#' when that split is sealed.
+#'
+#' Tokens are counted as in [tune_protocol()]: `tokens` sums the calls that
+#' reported usage and is `NA` when none did.
+#'
+#' @param protocol A [protocol()]. It must be locked for evaluation on the
+#'   gold set's declared holdout split.
 #' @param gold A [gold_set()].
-#' @param split Which split to evaluate on. Defaults to the gold set's
-#'   holdout split (`"test"` unless [gold_set()] was given another
-#'   `holdout` name).
+#' @param split Name of the split to evaluate. `NULL` selects the gold set's
+#'   declared holdout split.
 #' @inheritParams tune_protocol
-#' @return A `protocol_validation`: accuracy with an exact binomial CI, macro-F1,
-#'   parse failures, total tokens (when the runner reported them),
-#'   per-category table, confusion matrix, the protocol hash, the gold
-#'   set's holdout split name, and the ledger position of this evaluation.
+#' @return A list of class `protocol_validation` with the following elements.
+#'   \itemize{
+#'     \item `protocol`, the protocol label.
+#'     \item `protocol_hash`, the stored protocol hash.
+#'     \item `split`, the evaluated split name.
+#'     \item `holdout`, the declared holdout split name.
+#'     \item `n`, the number of scored units.
+#'     \item `accuracy`, the proportion of correct labels.
+#'     \item `acc_lo` and `acc_hi`, the exact 95 percent binomial confidence
+#'       limits.
+#'     \item `macro_f1`, the mean category F1 score, with undefined category
+#'       scores counted as zero.
+#'     \item `parse_failures`, the number of missing modal labels.
+#'     \item `tokens`, the subtotal of known token totals.
+#'     \item `calls`, the number of model calls, replicates included.
+#'     \item `tokens_unknown`, the number of calls that reported no usage.
+#'     \item `per_category`, the category-level score table.
+#'     \item `confusion`, the table of gold and predicted labels.
+#'     \item `ledger_entries`, the number of ledger entries after the call,
+#'       including this evaluation when it was recorded.
+#'   }
 #' @examples
 #' \dontrun{
 #' cb <- codebook("tone", "one sentence",
@@ -242,6 +394,7 @@ as_tibble.protocol_tuning <- function(x, ...) {
 #' gold_data <- data.frame(
 #'   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
 #'   label = rep(c("positive", "negative"), each = 10))
+#' set.seed(110)
 #' g <- gold_set(gold_data, text = "text", label = "label",
 #'               split = c(test = 1))
 #' p <- protocol_lock(protocol(cb, LLMR::llm_config("groq", "openai/gpt-oss-20b")))
@@ -276,12 +429,13 @@ validate_protocol <- function(protocol, gold, split = NULL,
     .gold_ledger_append(gold, split, protocol$hash, protocol$label,
                         sc$n, sc$accuracy)
   }
+  u <- .tokens_of(res)
   structure(
     list(protocol = protocol$label, protocol_hash = protocol$hash,
          split = split, holdout = holdout, n = sc$n,
          accuracy = sc$accuracy, acc_lo = ci[1], acc_hi = ci[2],
          macro_f1 = sc$macro_f1, parse_failures = sc$parse_failures,
-         tokens = .tokens_of(res),
+         tokens = u$tokens, calls = u$calls, tokens_unknown = u$unknown,
          per_category = sc$per_category, confusion = sc$confusion,
          ledger_entries = length(gold$ledger$rows)),
     class = "protocol_validation"
@@ -294,6 +448,8 @@ print.protocol_validation <- function(x, ...) {
               x$protocol, x$split, x$n))
   cat(sprintf("  accuracy %.3f [%.3f, %.3f] | macro-F1 %.3f | parse failures %d\n",
               x$accuracy, x$acc_lo, x$acc_hi, x$macro_f1, x$parse_failures))
+  line <- .usage_unknown_line(x[["tokens_unknown"]], x[["calls"]])
+  if (!is.null(line)) cat("  ", line, "\n", sep = "")
   if (identical(x$split, x$holdout)) {
     cat(sprintf("  %s-split evaluations ledgered so far: %d\n",
                 x$split, x$ledger_entries))

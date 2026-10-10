@@ -2,37 +2,63 @@
 % Please edit documentation in R/coder_run.R
 \name{validate_protocol}
 \alias{validate_protocol}
-\title{Validate a locked protocol on the sealed holdout split}
+\title{Validate a coding protocol against gold labels}
 \usage{
 validate_protocol(protocol, gold, split = NULL, .runner = NULL, ...)
 }
 \arguments{
-\item{protocol}{A \strong{locked} \code{\link[=protocol]{protocol()}}.}
+\item{protocol}{A \code{\link[=protocol]{protocol()}}. It must be locked for evaluation on the
+gold set's declared holdout split.}
 
 \item{gold}{A \code{\link[=gold_set]{gold_set()}}.}
 
-\item{split}{Which split to evaluate on. Defaults to the gold set's
-holdout split (\code{"test"} unless \code{\link[=gold_set]{gold_set()}} was given another
-\code{holdout} name).}
+\item{split}{Name of the split to evaluate. \code{NULL} selects the gold set's
+declared holdout split.}
 
-\item{.runner}{Offline runner seam: a function \verb{(experiments, ...)} that
-receives a data frame with \code{config} and \code{messages} list-columns and returns
-those rows with at least \code{response_text}. Default \code{LLMR::call_llm_par()}.}
+\item{.runner}{A function accepting \verb{(experiments, ...)}. It must return
+the experiment rows with their identifying columns and a nonmissing
+\code{response_text} column. If it returns \code{success}, every value must be
+\code{TRUE}. The default runner is \code{\link[LLMR:call_llm_par]{LLMR::call_llm_par()}}.}
 
-\item{...}{Passed to the runner (e.g. \code{tries}, \code{progress}).}
+\item{...}{Arguments passed to the runner.}
 }
 \value{
-A \code{protocol_validation}: accuracy with an exact binomial CI, macro-F1,
-parse failures, total tokens (when the runner reported them),
-per-category table, confusion matrix, the protocol hash, the gold
-set's holdout split name, and the ledger position of this evaluation.
+A list of class \code{protocol_validation} with the following elements.
+\itemize{
+\item \code{protocol}, the protocol label.
+\item \code{protocol_hash}, the stored protocol hash.
+\item \code{split}, the evaluated split name.
+\item \code{holdout}, the declared holdout split name.
+\item \code{n}, the number of scored units.
+\item \code{accuracy}, the proportion of correct labels.
+\item \code{acc_lo} and \code{acc_hi}, the exact 95 percent binomial confidence
+limits.
+\item \code{macro_f1}, the mean category F1 score, with undefined category
+scores counted as zero.
+\item \code{parse_failures}, the number of missing modal labels.
+\item \code{tokens}, the subtotal of known token totals.
+\item \code{calls}, the number of model calls, replicates included.
+\item \code{tokens_unknown}, the number of calls that reported no usage.
+\item \code{per_category}, the category-level score table.
+\item \code{confusion}, the table of gold and predicted labels.
+\item \code{ledger_entries}, the number of ledger entries after the call,
+including this evaluation when it was recorded.
+}
 }
 \description{
-Evaluates one locked protocol on the sealed holdout split. The lock identifies
-the evaluated instrument by its hash. The function applies the configured
-replicate count and modal-label rule, and when the gold set was built with
-\code{seal_holdout = TRUE}, appends the event to the ledger. Each holdout-split
-evaluation then appears in \code{LLMR::report()}.
+Applies one protocol to a gold-set split and compares its modal labels
+with the gold labels.
+}
+\details{
+Evaluation on the declared holdout split requires a locked protocol.
+A locked protocol must still match its stored hash. Evaluation on
+another split may use an unlocked protocol.
+
+An evaluation on the holdout split is appended to the gold set's ledger
+when that split is sealed.
+
+Tokens are counted as in \code{\link[=tune_protocol]{tune_protocol()}}: \code{tokens} sums the calls that
+reported usage and is \code{NA} when none did.
 }
 \examples{
 \dontrun{
@@ -42,6 +68,7 @@ cb <- codebook("tone", "one sentence",
 gold_data <- data.frame(
   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
   label = rep(c("positive", "negative"), each = 10))
+set.seed(110)
 g <- gold_set(gold_data, text = "text", label = "label",
               split = c(test = 1))
 p <- protocol_lock(protocol(cb, LLMR::llm_config("groq", "openai/gpt-oss-20b")))

@@ -69,11 +69,41 @@ verifiability_horizon <- function(
 archive_appendix <- function(archive, ...) {
   stopifnot(inherits(archive, "archive"))
   m <- archive$manifest
-  usage_tot <- Reduce(`+`, lapply(archive$records, function(r) {
-    u <- r$rec$usage
-    c(sent = as.numeric(u$sent %||% 0), rec = as.numeric(u$rec %||% 0))
-  }), accumulate = FALSE) %||% c(sent = 0, rec = 0)
-  fails <- sum(m$kind %in% "error" | (!is.na(m$status) & m$status >= 400))
+  failed <- m$kind %in% "error" | (!is.na(m$status) & m$status >= 400)
+  fails <- sum(failed)
+  # Sum each reported component independently, including error records.
+  part <- function(field) {
+    values <- lapply(archive$records, function(r) r$rec$usage[[field]])
+    valid <- vapply(values, function(v) {
+      is.numeric(v) && length(v) == 1L && is.finite(v) && v >= 0 && v == trunc(v)
+    }, logical(1))
+    missing <- vapply(values, function(v) {
+      is.null(v) || (length(v) == 1L && is.na(v) && !is.nan(v))
+    }, logical(1))
+    if (any(!valid & !missing)) {
+      warning(sprintf("Token field `usage$%s` contains invalid counts; they are treated as unknown.",
+                      field), call. = FALSE)
+    }
+    vapply(seq_along(values), function(i) {
+      if (valid[i]) as.double(values[[i]]) else NA_real_
+    }, numeric(1))
+  }
+  sent <- part("sent")
+  rec <- part("rec")
+  n_calls <- length(archive$records)
+  n_unknown <- sum(is.na(sent) | is.na(rec))
+  component <- function(v) {
+    if (length(v) && all(is.na(v))) return("unknown")
+    format(sum(v, na.rm = TRUE), scientific = FALSE, trim = TRUE)
+  }
+  tokens_line <- if (n_calls > 0L && all(is.na(sent)) && all(is.na(rec))) {
+    sprintf("TOKENS. Usage unknown for all %d call(s).", n_calls)
+  } else {
+    sprintf("TOKENS. %s sent, %s received (as reported by providers)%s.",
+            component(sent), component(rec),
+            if (n_unknown) sprintf("; usage incomplete for %d of %d call(s)",
+                                   n_unknown, n_calls) else "")
+  }
   by_model <- verifiability_horizon(archive, ...)
   versions <- unique(stats::na.omit(m$model_version))
   lines <- c(
@@ -89,9 +119,7 @@ archive_appendix <- function(archive, ...) {
     else
       sprintf("CALLS. %d total between %s and %s; %d failure(s).",
               nrow(m), min(m$ts, na.rm = TRUE), max(m$ts, na.rm = TRUE), fails),
-    sprintf("TOKENS. %s sent, %s received (as reported by providers).",
-            format(usage_tot[["sent"]], big.mark = ","),
-            format(usage_tot[["rec"]], big.mark = ",")),
+    tokens_line,
     if (length(versions))
       sprintf("SERVED VERSIONS. %s.", paste(versions, collapse = ", ")),
     "VERIFIABILITY HORIZON.",
