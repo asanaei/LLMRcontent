@@ -58,7 +58,7 @@ verifiability_horizon <- function(
 #' Generated from the archive itself: call counts by provider, model, and
 #' served `model_version`; date range; token totals; failure counts; seal
 #' root; and the verifiability horizon. Companion to
-#' `LLMR::llm_methods_text()`, which drafts the in-text methods paragraph
+#' `LLMR::report()`, which drafts the in-text methods paragraph
 #' from a results frame; this drafts the appendix from the log.
 #'
 #' @param archive An `archive` (seal it first; the root is cited).
