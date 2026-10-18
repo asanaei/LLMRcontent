@@ -50,6 +50,18 @@
 #'   are converted to numbers. A scalar `NA` or `NaN` gives `"missing"`.
 #'   An estimator error gives `"error"`, and another return value gives
 #'   `"invalid"`. Errors and invalid returns also produce a warning.
+#' @section Failed calls:
+#'   The grid is sent to the runner as one table. When the runner reports a
+#'   call as unsuccessful (`success` not `TRUE`) or returns a missing
+#'   `response_text`, no estimate is computed and the function stops with an
+#'   error of class `llmrcontent_run_failure`. Its `completed` field is a
+#'   tibble of the runner rows that succeeded, and its `failed` field gives
+#'   the `cell`, the `unit_id` (the row of the plan's data), and the runner's
+#'   `error_message`, when there is one, of each failed call. The completed
+#'   rows can be kept with
+#'   \preformatted{calls <- tryCatch(
+#'   audit_run(plan),
+#'   llmrcontent_run_failure = function(e) e$completed)}
 #' @examples
 #' \dontrun{
 #' speeches <- data.frame(
@@ -139,19 +151,7 @@ audit_run <- function(plan, .runner = NULL, ...) {
     abort("`.runner` must preserve experiment row identity.")
   }
   res <- res[match(expected_key, result_key), , drop = FALSE]
-  if ("success" %in% names(res)) {
-    failed <- !(res$success %in% TRUE)
-    if (any(failed)) {
-      abort(sprintf(
-        "`.runner` reported %d unsuccessful row(s); provider failures cannot be included in an audit.",
-        sum(failed)))
-    }
-  }
-  if (anyNA(res$response_text)) {
-    abort(sprintf(
-      "`.runner` returned a missing response for %d row(s); provider failures cannot be included in an audit.",
-      sum(is.na(res$response_text))))
-  }
+  .check_run_failure(res, c("cell", "unit_id"), audit = TRUE)
   res$label <- vapply(res$response_text, .normalize_label, character(1),
                       labels = plan$labels, USE.NAMES = FALSE)
   res$.call_tokens <- .call_tokens(res)

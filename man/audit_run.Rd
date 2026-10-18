@@ -58,6 +58,21 @@ default reference for \code{\link[=audit_fragility]{audit_fragility()}}.
 Tokens are counted as in \code{\link[=tune_protocol]{tune_protocol()}}: each cell's \code{tokens} sums the
 calls that reported usage and is \code{NA} when none did.
 }
+\section{Failed calls}{
+
+The grid is sent to the runner as one table. When the runner reports a
+call as unsuccessful (\code{success} not \code{TRUE}) or returns a missing
+\code{response_text}, no estimate is computed and the function stops with an
+error of class \code{llmrcontent_run_failure}. Its \code{completed} field is a
+tibble of the runner rows that succeeded, and its \code{failed} field gives
+the \code{cell}, the \code{unit_id} (the row of the plan's data), and the runner's
+\code{error_message}, when there is one, of each failed call. The completed
+rows can be kept with
+\preformatted{calls <- tryCatch(
+  audit_run(plan),
+  llmrcontent_run_failure = function(e) e$completed)}
+}
+
 \examples{
 \dontrun{
 speeches <- data.frame(

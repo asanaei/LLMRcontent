@@ -33,12 +33,16 @@
 }
 
 # Internal: code each protocol-unit group with the protocol's replicate rule and
-# return one row carrying its modal label and replicate details.
-.run_protocols <- function(protocols, texts, .runner = NULL, ...) {
+# return one row carrying its modal label and replicate details. `.unit_ids`
+# is NULL or a one-element named list holding the units' identifiers, aligned
+# with `texts`; it labels the rows of a run-failure condition.
+.run_protocols <- function(protocols, texts, .runner = NULL, ...,
+                           .unit_ids = NULL) {
   runner <- .runner %||% .default_runner
   exps <- .build_experiments(protocols, texts)
   k <- vapply(protocols, `[[`, integer(1), "replicates")
-  res <- lapply(seq_len(max(k)), function(r) {
+  passes <- list()
+  for (r in seq_len(max(k))) {
     pass <- exps[exps$protocol_id %in% which(k >= r), , drop = FALSE]
     out <- runner(pass, ...)
     required <- c(names(pass), "response_text")
@@ -53,19 +57,12 @@
       abort("`.runner` must preserve experiment row identity.")
     }
     out <- out[match(expected_key, result_key), , drop = FALSE]
-    if ("success" %in% names(out) && any(!out$success %in% TRUE)) {
-      n_failed <- sum(!out$success %in% TRUE)
-      abort(sprintf("`.runner` reported failure for %d experiment row(s).",
-                    n_failed))
-    }
-    if (anyNA(out$response_text)) {
-      abort(sprintf("`.runner` returned a missing response for %d experiment row(s).",
-                    sum(is.na(out$response_text))))
-    }
     out$replicate <- r
-    out
-  })
-  res <- .bind_call_rows(res)
+    .check_run_failure(out, c("protocol_id", "unit_id", "replicate"),
+                       previous = passes, ids = .unit_ids)
+    passes[[r]] <- out
+  }
+  res <- .bind_call_rows(passes)
   labels_of <- function(p) codebook_labels(protocols[[p]]$codebook)
   res$label <- vapply(seq_len(nrow(res)), function(i) {
     pr <- protocols[[res$protocol_id[i]]]
@@ -155,6 +152,7 @@
 #'       columns `protocol`, `calls` (model calls, replicates included), and
 #'       `tokens_unknown` (calls that reported no usage).}
 #'   }
+#' @inheritSection code_corpus Failed calls
 #' @examples
 #' \dontrun{
 #' cb <- codebook("tone", "one sentence",
@@ -190,7 +188,8 @@ tune_protocol <- function(protocols, gold, split = "dev",
   texts <- g[[gold$text]]
   truth <- as.character(g[[gold$label]])
 
-  res <- .run_protocols(protocols, texts, .runner = .runner, ...)
+  res <- .run_protocols(protocols, texts, .runner = .runner, ...,
+                        .unit_ids = .gold_unit_ids(gold, g))
   # Distinct labels keep the comparison table and the per_category field
   # one-to-one with the protocols; duplicate labels (the default when tuning
   # prompt variants on one model) would otherwise overwrite each other.
@@ -245,16 +244,73 @@ as_tibble.protocol_tuning <- function(x, ...) {
   tibble::as_tibble(x$table, ...)
 }
 
-# Runner batches may omit token columns on passes with no reported usage.
+# Internal: the identifiers of a gold split's rows, for run-failure records.
+.gold_unit_ids <- function(gold, rows) {
+  if (is.null(gold$id)) return(NULL)
+  stats::setNames(list(rows[[gold$id]]), gold$id)
+}
+
+# Runner batches may omit optional columns. Missing entries inherit the
+# supplied column's type, including list and date columns.
 .bind_call_rows <- function(batches) {
   columns <- unique(unlist(lapply(batches, names), use.names = FALSE))
+  prototypes <- lapply(columns, function(column) {
+    first <- which(vapply(batches, function(x) column %in% names(x), logical(1)))[1]
+    batches[[first]][[column]]
+  })
+  names(prototypes) <- columns
   batches <- lapply(batches, function(batch) {
+    batch <- tibble::as_tibble(batch)
     for (column in setdiff(columns, names(batch))) {
-      batch[[column]] <- rep(NA, nrow(batch))
+      batch[[column]] <- prototypes[[column]][rep(NA_integer_, nrow(batch))]
     }
     batch[columns]
   })
   do.call(rbind, batches)
+}
+
+# Recovery starts only after the runner's shape and identities are checked.
+# A failed row is one the runner reported as unsuccessful or one without a
+# response. The condition keeps the rows that succeeded, earlier passes
+# included, and the identities of the rows that did not.
+.check_run_failure <- function(out, keys, previous = list(), audit = FALSE,
+                               ids = NULL) {
+  reported <- if ("success" %in% names(out)) !(out$success %in% TRUE)
+              else rep(FALSE, nrow(out))
+  missing <- is.na(out$response_text) & !reported
+  failed <- reported | missing
+  if (!any(failed)) return(invisible(NULL))
+  rows <- if (audit) "row(s)" else "experiment row(s)"
+  parts <- c(
+    if (any(reported)) {
+      if (audit) sprintf("reported %d unsuccessful row(s)", sum(reported))
+      else sprintf("reported failure for %d experiment row(s)", sum(reported))
+    },
+    if (any(missing)) {
+      sprintf("returned a missing response for %d %s",
+              sum(missing), if (any(reported)) "more" else rows)
+    })
+  message <- paste0("`.runner` ", paste(parts, collapse = " and "),
+                    if (audit) "; provider failures cannot be included in an audit."
+                    else ".")
+  completed <- .bind_call_rows(c(previous, list(out[!failed, , drop = FALSE])))
+  failed_rows <- tibble::as_tibble(
+    out[failed, intersect(c(keys, "error_message"), names(out)), drop = FALSE])
+  abort(paste(message,
+              "Partial call records are in the condition's `completed` and `failed` fields.",
+              sep = "\n"),
+        class = "llmrcontent_run_failure",
+        completed = .with_unit_ids(completed, ids),
+        failed = .with_unit_ids(failed_rows, ids))
+}
+
+# Internal: put the units' own identifiers first in a table of call rows. The
+# column takes the identifier's name and replaces a column of that name.
+.with_unit_ids <- function(x, ids) {
+  if (is.null(ids)) return(x)
+  name <- names(ids)
+  x[[name]] <- ids[[1]][x$unit_id]
+  x[c(name, setdiff(names(x), name))]
 }
 
 # Each row carries its total and its contribution to call and missing counts.
@@ -386,6 +442,7 @@ as_tibble.protocol_tuning <- function(x, ...) {
 #'     \item `ledger_entries`, the number of ledger entries after the call,
 #'       including this evaluation when it was recorded.
 #'   }
+#' @inheritSection code_corpus Failed calls
 #' @examples
 #' \dontrun{
 #' cb <- codebook("tone", "one sentence",
@@ -421,7 +478,8 @@ validate_protocol <- function(protocol, gold, split = NULL,
   g <- gold_split(gold, split)
   texts <- g[[gold$text]]
   truth <- as.character(g[[gold$label]])
-  res <- .run_protocols(list(protocol), texts, .runner = .runner, ...)
+  res <- .run_protocols(list(protocol), texts, .runner = .runner, ...,
+                        .unit_ids = .gold_unit_ids(gold, g))
   res <- res[order(res$unit_id), ]
   sc <- .score_labels(res$label, truth, codebook_labels(protocol$codebook))
   ci <- .acc_ci(res$label, truth)
@@ -549,6 +607,30 @@ diagnostics.protocol_validation <- function(x, ...) {
 #'   adversarial corpora, inspect replicate disagreement and validate against
 #'   human labels with particular care. Separating instructions from data at
 #'   the message level is planned for a later release.
+#' @section Failed calls:
+#'   A run stops with an error when the runner reports a call as unsuccessful
+#'   (`success` not `TRUE`) or returns a missing `response_text`. The error
+#'   has class `llmrcontent_run_failure` and keeps the work done before it in
+#'   two fields.
+#'   \describe{
+#'     \item{`completed`}{A tibble of the runner rows that succeeded: every row
+#'       of earlier replicate passes and the successful rows of the pass that
+#'       failed. Its columns are those the runner returned, with `replicate`.}
+#'     \item{`failed`}{A tibble with one row per failed call: `protocol_id`
+#'       (the position in the list of protocols), `unit_id` (the position of
+#'       the text among the coded texts, which for tuning and validation are
+#'       the rows of `gold_split(gold, split)`), `replicate`, and
+#'       `error_message` when the runner returns one.}
+#'   }
+#'   When the units have identifiers (the `id` column given to
+#'   `code_corpus()` or [gold_set()]), both tables carry them as their first
+#'   column, under the same name. An identifier column named like one of the
+#'   tables' own columns, such as `unit_id`, takes that column's place. The
+#'   completed rows can be kept with
+#'   \preformatted{calls <- tryCatch(
+#'   code_corpus(corpus, p, "text", id = "doc_id"),
+#'   llmrcontent_run_failure = function(e) e$completed)}
+#'   and `e$failed` names the calls to run again.
 #' @examples
 #' cb <- codebook("tone", "one sentence",
 #'   list(cb_category("positive", "Approving."),
@@ -571,6 +653,17 @@ diagnostics.protocol_validation <- function(x, ...) {
 #' }
 #' code_corpus(data.frame(text = c("clear progress", "serious problem")),
 #'             p, "text", .runner = keyword_coder)
+#'
+#' # A failed call stops the run, and the condition names it by `id`:
+#' flaky_coder <- function(experiments, ...) {
+#'   out <- keyword_coder(experiments)
+#'   out$success <- !grepl("problem", out$text)
+#'   out
+#' }
+#' corpus <- data.frame(doc_id = c("a07", "a08"),
+#'                      text = c("clear progress", "serious problem"))
+#' tryCatch(code_corpus(corpus, p, "text", id = "doc_id", .runner = flaky_coder),
+#'          llmrcontent_run_failure = function(e) e$failed)
 #' @export
 code_corpus <- function(corpus, protocol, text, id = NULL, .runner = NULL, ...) {
   stopifnot(is.data.frame(corpus), inherits(protocol, "coding_protocol"))
@@ -618,7 +711,9 @@ code_corpus <- function(corpus, protocol, text, id = NULL, .runner = NULL, ...) 
     out$.text_hash <- character(0)
     return(.new_coded_corpus(out, protocol, text, id))
   }
-  res <- .run_protocols(list(protocol), texts, .runner = .runner, ...)
+  unit_ids <- if (is.null(id)) NULL else stats::setNames(list(corpus[[id]]), id)
+  res <- .run_protocols(list(protocol), texts, .runner = .runner, ...,
+                        .unit_ids = unit_ids)
   res <- res[order(res$unit_id), , drop = FALSE]
   m <- do.call(rbind, res$replicate_labels)
   out <- tibble::as_tibble(corpus)

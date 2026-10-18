@@ -11,6 +11,18 @@
   calls with incomplete usage.
 * The Studio counts usage from the calls each run made, including runs that
   fail, and requires LLMR.shiny 0.1.3 or later.
+* When the runner reports a failed call or returns a missing response,
+  `code_corpus()`, `tune_protocol()`, `validate_protocol()`, and
+  `audit_run()` stop with an error of class `llmrcontent_run_failure`. Its
+  `completed` field holds the runner rows that succeeded, earlier replicate
+  passes included, and its `failed` field identifies the failed calls, by
+  the unit's `id` value when the corpus or gold set declares one. The error
+  used to carry only a count of failed rows, and the work of the whole run
+  was lost when one call failed.
+* Replicate passes whose runner rows omit a column are bound with missing
+  values of that column's type. When the first pass lacked a date-time
+  column, its values used to become plain numbers, and a missing list entry
+  used to be a logical `NA`.
 
 # LLMRcontent 0.2.1
 

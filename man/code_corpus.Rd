@@ -58,6 +58,33 @@ human labels with particular care. Separating instructions from data at
 the message level is planned for a later release.
 }
 
+\section{Failed calls}{
+
+A run stops with an error when the runner reports a call as unsuccessful
+(\code{success} not \code{TRUE}) or returns a missing \code{response_text}. The error
+has class \code{llmrcontent_run_failure} and keeps the work done before it in
+two fields.
+\describe{
+\item{\code{completed}}{A tibble of the runner rows that succeeded: every row
+of earlier replicate passes and the successful rows of the pass that
+failed. Its columns are those the runner returned, with \code{replicate}.}
+\item{\code{failed}}{A tibble with one row per failed call: \code{protocol_id}
+(the position in the list of protocols), \code{unit_id} (the position of
+the text among the coded texts, which for tuning and validation are
+the rows of \code{gold_split(gold, split)}), \code{replicate}, and
+\code{error_message} when the runner returns one.}
+}
+When the units have identifiers (the \code{id} column given to
+\code{code_corpus()} or \code{\link[=gold_set]{gold_set()}}), both tables carry them as their first
+column, under the same name. An identifier column named like one of the
+tables' own columns, such as \code{unit_id}, takes that column's place. The
+completed rows can be kept with
+\preformatted{calls <- tryCatch(
+  code_corpus(corpus, p, "text", id = "doc_id"),
+  llmrcontent_run_failure = function(e) e$completed)}
+and \code{e$failed} names the calls to run again.
+}
+
 \examples{
 cb <- codebook("tone", "one sentence",
   list(cb_category("positive", "Approving."),
@@ -80,4 +107,15 @@ keyword_coder <- function(experiments, ...) {
 }
 code_corpus(data.frame(text = c("clear progress", "serious problem")),
             p, "text", .runner = keyword_coder)
+
+# A failed call stops the run, and the condition names it by `id`:
+flaky_coder <- function(experiments, ...) {
+  out <- keyword_coder(experiments)
+  out$success <- !grepl("problem", out$text)
+  out
+}
+corpus <- data.frame(doc_id = c("a07", "a08"),
+                     text = c("clear progress", "serious problem"))
+tryCatch(code_corpus(corpus, p, "text", id = "doc_id", .runner = flaky_coder),
+         llmrcontent_run_failure = function(e) e$failed)
 }
