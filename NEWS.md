@@ -25,8 +25,9 @@
 * When the reference estimate is 0, the Studio's audit summary says that
   the reference has no sign, so no cell can change it, and for the
   most-common-label estimand that a cell estimate of 1 is not counted as a
-  change. The summary used to say "No cell in this grid changes the
-  reference sign.", which read as a stable result.
+  change; it omits the share of cells with the reference sign. The summary
+  used to say "No cell in this grid changes the reference sign.", which
+  read as a stable result.
 * The Studio's audit summary begins "Across the k of n cells with an
   estimate" when some cells have no estimate. It used to say "Across n
   cells" although the range and the sign share cover only the cells with an
@@ -64,16 +65,19 @@
   used to carry only a count of failed rows, and the work of the whole run
   was lost when one call failed.
 * The Studio's robustness audit refuses a temperature field in which a
-  token is not a decimal number or lies outside the range `llm_config()`
-  accepts, 0 to 1 for Anthropic and 0 to 2 for other providers. The Run
-  audit button is disabled with a reason that names the token, such as
+  token is not a decimal number or lies outside the provider's range, 0 to
+  1 for Anthropic and 0 to 2 for other providers (the range to which
+  `llm_config()` clamps; `audit_run()` sets grid temperatures directly).
+  The sidebar temperature, which joins the grid, is held to the same
+  range. The Run audit button is disabled with a reason that names the
+  token, such as
   "The audit is disabled until the temperatures are numbers from 0 to 2;
   '0.7x' is not a number." The field used to drop tokens that did not parse
   and keep the rest: "0, 0.7x, 1" built arms for temperatures 0 and 1,
   "0,0,7" (a decimal comma) built arms for 0 and 7, and "0, -1, 5" built
   arms for all three.
-* The `table` and `usage` fields of `tune_protocol()` results gain a
-  `protocol_id` column, each protocol's position in `protocols`, which the
+* The `table` and `usage` fields of `tune_protocol()` results gain a last
+  column, `protocol_id`, each protocol's position in `protocols`, which the
   sort by accuracy keeps. The README selected the winner with
   `candidates[[tuning$table$protocol[[1]]]]`, which finds the right
   protocol only when the list names equal the labels, and the labels are
@@ -110,8 +114,8 @@
   so identifiers keep their leading zeros and all their digits. Once the
   columns are mapped, identifier columns (the mapped id column and columns
   named like `id`, `doc_id`, or `response_id`) stay as written, the text and
-  label columns stay character, and the other columns are converted as
-  `read.csv()` converts them. The Studio used to infer every column's type
+  label columns stay character, with blank labels missing, and the other
+  columns are converted as `read.csv()` converts them. The Studio used to infer every column's type
   on reading, so `007`, `07`, and `7` became one number and a gold set with
   such identifiers was refused for duplicates, a gold unit could link to a
   different corpus row, and a 20-digit identifier lost its last digits. The

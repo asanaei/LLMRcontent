@@ -131,3 +131,20 @@ test_that("the audit tab passes uploaded identifiers to the plan unchanged", {
     }
   )
 })
+
+test_that("a blank gold label is missing, also in a column of numeric codes", {
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
+  path <- write_id_csv(c("id,text,label", "001,a,1", "002,b,", "003,c,2",
+                         "004,d,1"))
+  on.exit(unlink(path), add = TRUE)
+  raw <- LLMRcontent:::read_csv_path(path)
+  typed <- LLMRcontent:::.content_type_columns(raw["label"], labels = "label")
+  expect_identical(typed$label, c("1", NA, "2", "1"))
+  expect_error(suppressWarnings(LLMRcontent:::call_gold_set_mapped(
+    raw, "text", "label", split = c(dev = 0.5, test = 0.5), stratify = FALSE,
+    id_col = "id")), "Gold labels contain NA")
+  # Text columns keep blank cells as written, as read.csv() did.
+  typed <- LLMRcontent:::.content_type_columns(
+    data.frame(body = c("", "NA", "x")), text = "body")
+  expect_identical(typed$body, c("", NA, "x"))
+})

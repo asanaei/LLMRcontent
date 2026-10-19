@@ -71,17 +71,23 @@ help_tip                  <- function(...) LLMR.shiny::help_tip(...)
 
 # Restore column types in a CSV read as text. Identifier columns, those named
 # in `ids` and those whose names mark them as identifiers, stay as written,
-# with blank cells missing. Text columns, those named in `text` and those
-# whose names mark them as text, stay character, with "NA" missing. Every
-# other column is converted as utils::read.csv() would have converted it.
-.content_type_columns <- function(data, ids = NULL, text = NULL) {
-  ids <- union(ids, setdiff(.content_id_columns(data), text))
-  text <- union(setdiff(text, ids), setdiff(.content_text_columns(data), ids))
+# with blank cells missing. Label columns stay character, with blank and "NA"
+# cells missing. Text columns, those named in `text` and those whose names
+# mark them as text, stay character, with "NA" missing. Every other column is
+# converted as utils::read.csv() would have converted it.
+.content_type_columns <- function(data, ids = NULL, text = NULL,
+                                  labels = NULL) {
+  ids <- union(ids, setdiff(.content_id_columns(data), c(text, labels)))
+  labels <- setdiff(labels, ids)
+  text <- union(setdiff(text, c(ids, labels)),
+                setdiff(.content_text_columns(data), c(ids, labels)))
   for (column in names(data)) {
     x <- data[[column]]
     if (!is.character(x)) next
     if (column %in% ids) {
       x[!is.na(x) & !nzchar(trimws(x))] <- NA_character_
+    } else if (column %in% labels) {
+      x[x %in% "NA" | !nzchar(trimws(x))] <- NA_character_
     } else if (column %in% text) {
       x[x %in% "NA"] <- NA_character_
     } else {

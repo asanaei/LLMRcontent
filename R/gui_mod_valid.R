@@ -49,12 +49,14 @@ valid_demo_responder <- function(labels) {
   }
 }
 
-# Temperatures for the audit grid, from the comma-separated field. Each
-# nonempty token must be a decimal number in the range llm_config() accepts
-# for the provider: 0 to 1 for Anthropic, 0 to 2 otherwise. The first token
-# that fails is named in `problem`, and `values` is then empty, so no grid is
-# built from part of the input.
-.valid_parse_temperatures <- function(text, provider = NULL) {
+# Temperatures for the audit grid, from the comma-separated field and the
+# sidebar value. Each nonempty token must be a decimal number in the
+# provider's range, 0 to 1 for Anthropic and 0 to 2 otherwise, the range to
+# which llm_config() clamps; audit_run() sets grid temperatures directly, so
+# nothing clamps them later. The first value that fails is named in
+# `problem`, and `values` is then empty, so no grid is built from part of the
+# input.
+.valid_parse_temperatures <- function(text, provider = NULL, sidebar = NULL) {
   tokens <- trimws(strsplit(paste(text, collapse = ","), ",", fixed = TRUE)[[1]])
   tokens <- tokens[nzchar(tokens)]
   upper <- if (identical(provider, "anthropic")) 1 else 2
@@ -73,6 +75,15 @@ valid_demo_responder <- function(labels) {
   outside <- values < 0 | values > upper
   if (any(outside)) {
     return(fail(sprintf("'%s' is outside that range", tokens[outside][1])))
+  }
+  if (length(sidebar)) {
+    if (length(sidebar) != 1L || !is.numeric(sidebar) || !is.finite(sidebar)) {
+      return(fail("the sidebar temperature is not a number"))
+    }
+    if (sidebar < 0 || sidebar > upper) {
+      return(fail(sprintf("the sidebar temperature, %s, is outside that range",
+                          format(sidebar))))
+    }
   }
   list(values = values, problem = NULL, range = range)
 }
@@ -222,7 +233,8 @@ mod_valid_server <- function(id, shared, active = NULL) {
       x[nzchar(x)]
     }
     temperature_input <- function() {
-      .valid_parse_temperatures(input$temps %||% "0", shared$provider())
+      .valid_parse_temperatures(input$temps %||% "0", shared$provider(),
+                                sidebar = shared$temperature())
     }
     parse_temps <- function() temperature_input()$values
 
@@ -576,17 +588,21 @@ mod_valid_server <- function(id, shared, active = NULL) {
       } else {
         sprintf("Across %d cells", stability$n_cells)
       }
+      # A reference of 0 has no sign to share.
+      sign_text <- if (isTRUE(stability$reference_estimate == 0)) {
+        "."
+      } else {
+        sprintf(" and %.0f%% share the reference sign.",
+                100 * stability$sign_agreement)
+      }
       shiny::tags$p(
         class = "fw-semibold",
         sprintf(
-          paste0(
-            "%s, estimates range from %.3f to %.3f and ",
-            "%.0f%% share the reference sign. %s"
-          ),
+          "%s, estimates range from %.3f to %.3f%s %s",
           cells_text,
           stability$min,
           stability$max,
-          100 * stability$sign_agreement,
+          sign_text,
           fragility_text
         )
       )

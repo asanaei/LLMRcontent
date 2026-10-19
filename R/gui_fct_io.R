@@ -9,7 +9,8 @@ call_gold_set_mapped <- function(data, text_col, label_col, split, stratify,
   # LLMR.shiny::map_columns names the working columns "text" and "labels";
   # gold_set takes those as column-name strings. An id column keeps its
   # original name and rides through keep_original.
-  data <- .content_type_columns(data, ids = id_col, text = c(text_col, label_col))
+  data <- .content_type_columns(data, ids = id_col, text = text_col,
+                                labels = label_col)
   mapped <- LLMR.shiny::map_columns(data, text_col, label_col, keep_original = TRUE)
   LLMRcontent::gold_set(
     data = mapped,

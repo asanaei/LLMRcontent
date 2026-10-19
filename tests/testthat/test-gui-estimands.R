@@ -43,6 +43,7 @@ test_that("the Studio says a zero reference has no sign to flip", {
                    fixed = TRUE)
       expect_match(status, "most-common-label estimand is 0 or 1", fixed = TRUE)
       expect_false(grepl("No cell in this grid changes", status, fixed = TRUE))
+      expect_false(grepl("share the reference sign", status, fixed = TRUE))
 
       session$setInputs(estimand = "share")
       run_audit(confirmed = TRUE)
@@ -50,6 +51,7 @@ test_that("the Studio says a zero reference has no sign to flip", {
       status <- paste(as.character(output$audit_status), collapse = "")
       expect_false(grepl("has no sign", status, fixed = TRUE))
       expect_match(status, "Across 2 cells", fixed = TRUE)
+      expect_match(status, "share the reference sign", fixed = TRUE)
     }
   )
 })

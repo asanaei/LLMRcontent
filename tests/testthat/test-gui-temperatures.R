@@ -105,3 +105,17 @@ test_that("the audit button names a refused temperature and the run stops", {
     }
   )
 })
+
+test_that("the sidebar temperature is held to the same range", {
+  parse <- LLMRcontent:::.valid_parse_temperatures
+  expect_identical(parse("0", "groq", sidebar = 1.5)$values, 0)
+  out <- parse("0", "anthropic", sidebar = 1.5)
+  expect_identical(out$values, numeric())
+  expect_identical(out$problem,
+                   "the sidebar temperature, 1.5, is outside that range")
+  expect_identical(parse("0", "groq", sidebar = NA_real_)$problem,
+                   "the sidebar temperature is not a number")
+  expect_identical(parse("0", "groq", sidebar = 3)$problem,
+                   "the sidebar temperature, 3, is outside that range")
+  expect_null(parse("0", "groq", sidebar = NULL)$problem)
+})
