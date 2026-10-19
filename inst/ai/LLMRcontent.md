@@ -88,12 +88,12 @@ cb <- codebook("tone", "one sentence",
        cb_category("negative", "Critical or alarmed.")))
 
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
-ps  <- list(base = protocol(cb, cfg, label = "base"),
-            terse = protocol(cb, cfg, prompt = "{codebook}\n\n{text}\nLabel:",
-                             label = "terse"))
+ps  <- list(protocol(cb, cfg, label = "base"),
+            protocol(cb, cfg, prompt = "{codebook}\n\n{text}\nLabel:",
+                     label = "terse"))
 
 tuning <- tune_protocol(ps, gold)        # compare protocols on the dev split
-best <- tuning$table$protocol[[1]]       # the most accurate protocol's label
+best <- tuning$table$protocol_id[[1]]    # position of the most accurate one
 winner <- protocol_lock(ps[[best]])      # lock the selected measurement protocol
 v <- validate_protocol(winner, gold)     # evaluate on the test split
 coded <- code_corpus(big_df, winner, "text")
@@ -128,9 +128,10 @@ tibble::as_tibble(coded)
 - `gold_correct()` requires `design = "srs"`, a statement that the holdout
   units are a simple random sample of the coded corpus. Its default,
   `"unknown"`, refuses to estimate.
-- `tuning$table` is sorted by accuracy, and its `protocol` column holds the
-  protocol labels, made unique when two protocols share one. Name the
-  candidate list by distinct labels to select the winner by name.
+- `tuning$table` is sorted by accuracy. Its `protocol` column holds the
+  protocol labels, made unique when two protocols share one, and its
+  `protocol_id` column holds each protocol's position in the candidate list;
+  select the winner with `ps[[tuning$table$protocol_id[[1]]]]`.
 - Set `temperature = 0` for deterministic annotation. Use replicates when the
   analysis concerns variation across model responses.
 - Custom prompts must contain `{text}`; `{codebook}` inserts `format_codebook()`.

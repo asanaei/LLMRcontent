@@ -38,7 +38,8 @@ candidates <- list(
                      label = "concise")
 )
 tuning <- tune_protocol(candidates, g)                       # development split
-p <- protocol_lock(candidates[[tuning$table$protocol[[1]]]]) # selected protocol
+best <- tuning$table$protocol_id[[1]]                        # most accurate
+p <- protocol_lock(candidates[[best]])                       # selected protocol
 v <- validate_protocol(p, g)                                 # sealed holdout
 coded <- code_corpus(corpus, p, "text")                      # full corpus
 gc <- gold_correct(coded, g, design = "srs")                 # prevalence + SEs
@@ -73,7 +74,7 @@ archive_drift(ar, n = 10)                                   # optional live drif
 correction, audit, and archive objects. `LLMR::report()` creates draft reports
 for validation, audit, and archive objects. Result objects retain the inputs
 and run records needed to interpret them: tuning has `table`, `per_category`,
-and `split`; audits have `cells`, `units`, and `plan`.
+`split`, and `usage`; audits have `cells`, `units`, and `plan`.
 `tibble::as_tibble()` extracts their main tables.
 
 ## Shiny interface

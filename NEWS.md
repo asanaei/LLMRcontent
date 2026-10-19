@@ -71,6 +71,13 @@
   '0.7x' is not a number." The field used to drop tokens that did not parse
   and keep the rest: "0, 0.7x, 1" ran temperatures 0 and 1, "0,0,7" (a
   decimal comma) ran 0 and 7, and "0, -1, 5" ran all three.
+* The `table` and `usage` fields of `tune_protocol()` results gain a
+  `protocol_id` column, each protocol's position in `protocols`, which the
+  sort by accuracy keeps. The README selected the winner with
+  `candidates[[tuning$table$protocol[[1]]]]`, which finds the right
+  protocol only when the list names equal the labels, and the labels are
+  made unique with suffixes such as `.1` when protocols share one. The
+  README and the usage capsule select by `protocol_id`.
 * `code_corpus()` refuses an `id` column with missing or repeated values
   before any call, with the error "`id` column 'doc' must have no NA and no
   duplicate values in `corpus`: ...", which counts the missing ids and names

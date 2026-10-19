@@ -371,10 +371,18 @@ test_that("usage follows ranked protocols with duplicate labels and distinct rep
   }
   out <- tune_protocol(protocols, g, .runner = runner)
   expect_named(out, c("table", "per_category", "split", "usage"))
-  expect_named(out$table, c("protocol", "n", "accuracy", "acc_lo", "acc_hi",
-                            "macro_f1", "parse_failures", "tokens"))
-  expect_named(out$usage, c("protocol", "calls", "tokens_unknown"))
+  expect_named(out$table, c("protocol", "protocol_id", "n", "accuracy",
+                            "acc_lo", "acc_hi", "macro_f1", "parse_failures",
+                            "tokens"))
+  expect_named(out$usage, c("protocol", "protocol_id", "calls", "tokens_unknown"))
   expect_identical(out$usage$protocol, c("candidate.2", "candidate.1", "candidate"))
+  # Sorting by accuracy keeps each row's position in `protocols`, so the
+  # winner is selected by position although every label is "candidate".
+  expect_identical(out$table$protocol_id, c(3L, 2L, 1L))
+  expect_identical(out$usage$protocol_id, out$table$protocol_id)
+  winner <- protocols[[out$table$protocol_id[[1]]]]
+  expect_identical(winner$replicates, 3L)
+  expect_identical(out$table$accuracy, c(1, 0.5, 0))
   expect_identical(out$usage$protocol, out$table$protocol)
   expect_identical(out$usage$calls, c(12L, 8L, 4L))
   expect_identical(out$usage$tokens_unknown, c(0L, 0L, 0L))

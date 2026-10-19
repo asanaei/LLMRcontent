@@ -28,6 +28,8 @@ A list of class \code{protocol_tuning} with the following elements.
 accuracy. The columns have the following meanings.
 \itemize{
 \item \code{protocol}, the protocol label, made unique when needed.
+\item \code{protocol_id}, the protocol's position in \code{protocols}, which
+identifies it whatever its label.
 \item \code{n}, the number of scored units.
 \item \code{accuracy}, the proportion of correct labels.
 \item \code{acc_lo} and \code{acc_hi}, the limits of the exact 95 percent
@@ -41,8 +43,8 @@ category scores counted as zero.
 labels used in \code{table}.}
 \item{split}{The evaluated split name.}
 \item{usage}{A tibble in the same protocol order as \code{table}, with
-columns \code{protocol}, \code{calls} (model calls, replicates included), and
-\code{tokens_unknown} (calls that reported no usage).}
+columns \code{protocol}, \code{protocol_id}, \code{calls} (model calls, replicates
+included), and \code{tokens_unknown} (calls that reported no usage).}
 }
 }
 \description{
@@ -86,17 +88,34 @@ and \code{e$failed} names the calls to run again.
 }
 
 \examples{
-\dontrun{
 cb <- codebook("tone", "one sentence",
   list(cb_category("positive", "Approving."),
        cb_category("negative", "Critical.")))
 gold_data <- data.frame(
-  text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
-  label = rep(c("positive", "negative"), each = 10))
+  text  = c(paste("clear benefit", 1:20), paste("serious harm", 1:20)),
+  label = rep(c("positive", "negative"), each = 20))
 set.seed(110)
 g  <- gold_set(gold_data, text = "text", label = "label",
                split = c(dev = 0.5, test = 0.5))
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
+\dontrun{
 tune_protocol(list(protocol(cb, cfg, label = "baseline")), g)
 }
+
+# Offline, with a keyword coder in place of the model; it codes correctly
+# only under the terse prompt. The two prompt variants on one model share
+# the default label, so the table shows them as "groq/openai/gpt-oss-20b"
+# and "groq/openai/gpt-oss-20b.1", and `protocol_id` selects the winner.
+candidates <- list(
+  protocol(cb, cfg),
+  protocol(cb, cfg, prompt = "{codebook}\n\n{text}\nLabel:"))
+keyword_coder <- function(experiments, ...) {
+  terse <- grepl("Label:$", vapply(experiments$messages, `[[`, "", "user"))
+  experiments$response_text <- ifelse(
+    terse & grepl("benefit", experiments$text), "positive", "negative")
+  experiments
+}
+tuning <- tune_protocol(candidates, g, .runner = keyword_coder)
+tuning$table[c("protocol", "protocol_id", "accuracy")]
+winner <- protocol_lock(candidates[[tuning$table$protocol_id[[1]]]])
 }

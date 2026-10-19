@@ -136,6 +136,8 @@
 #'       accuracy. The columns have the following meanings.
 #'       \itemize{
 #'         \item `protocol`, the protocol label, made unique when needed.
+#'         \item `protocol_id`, the protocol's position in `protocols`, which
+#'           identifies it whatever its label.
 #'         \item `n`, the number of scored units.
 #'         \item `accuracy`, the proportion of correct labels.
 #'         \item `acc_lo` and `acc_hi`, the limits of the exact 95 percent
@@ -149,24 +151,41 @@
 #'       labels used in `table`.}
 #'     \item{split}{The evaluated split name.}
 #'     \item{usage}{A tibble in the same protocol order as `table`, with
-#'       columns `protocol`, `calls` (model calls, replicates included), and
-#'       `tokens_unknown` (calls that reported no usage).}
+#'       columns `protocol`, `protocol_id`, `calls` (model calls, replicates
+#'       included), and `tokens_unknown` (calls that reported no usage).}
 #'   }
 #' @inheritSection code_corpus Failed calls
 #' @examples
-#' \dontrun{
 #' cb <- codebook("tone", "one sentence",
 #'   list(cb_category("positive", "Approving."),
 #'        cb_category("negative", "Critical.")))
 #' gold_data <- data.frame(
-#'   text  = c(paste("clear benefit", 1:10), paste("serious harm", 1:10)),
-#'   label = rep(c("positive", "negative"), each = 10))
+#'   text  = c(paste("clear benefit", 1:20), paste("serious harm", 1:20)),
+#'   label = rep(c("positive", "negative"), each = 20))
 #' set.seed(110)
 #' g  <- gold_set(gold_data, text = "text", label = "label",
 #'                split = c(dev = 0.5, test = 0.5))
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
+#' \dontrun{
 #' tune_protocol(list(protocol(cb, cfg, label = "baseline")), g)
 #' }
+#'
+#' # Offline, with a keyword coder in place of the model; it codes correctly
+#' # only under the terse prompt. The two prompt variants on one model share
+#' # the default label, so the table shows them as "groq/openai/gpt-oss-20b"
+#' # and "groq/openai/gpt-oss-20b.1", and `protocol_id` selects the winner.
+#' candidates <- list(
+#'   protocol(cb, cfg),
+#'   protocol(cb, cfg, prompt = "{codebook}\n\n{text}\nLabel:"))
+#' keyword_coder <- function(experiments, ...) {
+#'   terse <- grepl("Label:$", vapply(experiments$messages, `[[`, "", "user"))
+#'   experiments$response_text <- ifelse(
+#'     terse & grepl("benefit", experiments$text), "positive", "negative")
+#'   experiments
+#' }
+#' tuning <- tune_protocol(candidates, g, .runner = keyword_coder)
+#' tuning$table[c("protocol", "protocol_id", "accuracy")]
+#' winner <- protocol_lock(candidates[[tuning$table$protocol_id[[1]]]])
 #' @export
 tune_protocol <- function(protocols, gold, split = "dev",
                           .runner = NULL, ...) {
@@ -203,10 +222,11 @@ tune_protocol <- function(protocols, gold, split = "dev",
     ci <- .acc_ci(ri$label, truth)
     per_cat[[plabels[[p]]]] <<- sc$per_category
     u <- .tokens_of(ri)
-    usage[[p]] <<- tibble::tibble(protocol = plabels[[p]], calls = u$calls,
-                                  tokens_unknown = u$unknown)
+    usage[[p]] <<- tibble::tibble(protocol = plabels[[p]], protocol_id = p,
+                                  calls = u$calls, tokens_unknown = u$unknown)
     tibble::tibble(
       protocol = plabels[[p]],
+      protocol_id = p,
       n = sc$n, accuracy = sc$accuracy,
       acc_lo = ci[1], acc_hi = ci[2],
       macro_f1 = sc$macro_f1, parse_failures = sc$parse_failures,
