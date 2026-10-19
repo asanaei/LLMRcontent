@@ -25,7 +25,8 @@ complete: a missing label is not gold, and construction fails on \code{NA}s.}
 \item{label}{Name of the (adjudicated) label column.}
 
 \item{split}{Named numeric vector of proportions, e.g.
-\code{c(dev = 0.6, test = 0.4)}. Must sum to 1. Sizes are allocated by
+\code{c(dev = 0.6, test = 0.4)}. The names must be unique and nonempty, and
+the proportions finite, nonnegative, and summing to 1. Sizes are allocated by
 largest remainder (exact, no rounding loss); assignment is random
 within the allocation -- set a seed beforehand for a repeatable draw,
 and keep the saved object either way, since the split is stored, not
@@ -56,7 +57,7 @@ coder labels (pre-adjudication), used by \code{\link[=coder_agreement]{coder_agr
 supplied, \code{\link[=gold_correct]{gold_correct()}} links audit units to the coded corpus by this
 id, which is the only way to disambiguate units that share identical text.
 The same column must be present in the \code{corpus} passed to \code{\link[=code_corpus]{code_corpus()}}.
-When omitted, linkage falls back to a content hash of the text, and
+Its values must be unique and nonmissing. When omitted, linkage falls back to a content hash of the text, and
 duplicate texts among audited units are refused rather than matched
 arbitrarily.}
 }

@@ -71,6 +71,23 @@
   '0.7x' is not a number." The field used to drop tokens that did not parse
   and keep the rest: "0, 0.7x, 1" ran temperatures 0 and 1, "0,0,7" (a
   decimal comma) ran 0 and 7, and "0, -1, 5" ran all three.
+* `code_corpus()` refuses an `id` column with missing or repeated values
+  before any call, with the error "`id` column 'doc' must have no NA and no
+  duplicate values in `corpus`: ...", which counts the missing ids and names
+  the repeated ones. Such a corpus used to be coded, and the problem
+  surfaced only in `gold_correct()`. The `gold_set()` error for the same
+  problem names the ids as well.
+* `gold_set()` refuses a `split` whose names are missing, empty, or
+  repeated, or whose proportions are not finite and nonnegative, with
+  errors that name the entries ("`split` proportions must be finite and
+  nonnegative: test = -0.5."). A missing or negative proportion used to
+  fail with an unrelated error from the allocation, a repeated name put
+  every unit in one split, and an empty name created a split named "". A
+  sum other than 1 is reported with the actual sum. Valid specifications
+  allocate units as before.
+* `gold_split()` for a split with no units says so and lists the units by
+  split and label. It used to report only "No split named 'test' in this
+  gold set."
 * The Studio reads uploaded and demo CSV files with every column as text,
   so identifiers keep their leading zeros and all their digits. Once the
   columns are mapped, identifier columns (the mapped id column and columns

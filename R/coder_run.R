@@ -587,7 +587,8 @@ diagnostics.protocol_validation <- function(x, ...) {
 #' @param id Optional name of a stable unit-identifier column in `corpus`. Carry
 #'   it through so [gold_correct()] can link audit units to corpus rows by id,
 #'   the only way to disambiguate rows that share identical text. Use the same
-#'   `id` here as in [gold_set()].
+#'   `id` here as in [gold_set()]. Its values must be unique and nonmissing;
+#'   the corpus is refused before any call otherwise.
 #' @inheritParams tune_protocol
 #' @return A `coded_corpus` object. Its `data` field contains `corpus` plus
 #'   `label` (modal label; `NA` when no replicate parsed or when the top
@@ -677,6 +678,7 @@ code_corpus <- function(corpus, protocol, text, id = NULL, .runner = NULL, ...) 
   if (!is.null(id) && !id %in% names(corpus)) {
     abort(sprintf("`id` column '%s' not found in `corpus`.", id))
   }
+  if (!is.null(id)) .check_unit_ids(corpus[[id]], id, "`corpus`")
   texts <- corpus[[text]]
   if (anyNA(texts)) {
     abort(sprintf(paste(

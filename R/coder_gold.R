@@ -14,7 +14,8 @@
 #' @param text Name of the text column (character scalar).
 #' @param label Name of the (adjudicated) label column.
 #' @param split Named numeric vector of proportions, e.g.
-#'   `c(dev = 0.6, test = 0.4)`. Must sum to 1. Sizes are allocated by
+#'   `c(dev = 0.6, test = 0.4)`. The names must be unique and nonempty, and
+#'   the proportions finite, nonnegative, and summing to 1. Sizes are allocated by
 #'   largest remainder (exact, no rounding loss); assignment is random
 #'   within the allocation -- set a seed beforehand for a repeatable draw,
 #'   and keep the saved object either way, since the split is stored, not
@@ -40,7 +41,7 @@
 #'   supplied, [gold_correct()] links audit units to the coded corpus by this
 #'   id, which is the only way to disambiguate units that share identical text.
 #'   The same column must be present in the `corpus` passed to [code_corpus()].
-#'   When omitted, linkage falls back to a content hash of the text, and
+#'   Its values must be unique and nonmissing. When omitted, linkage falls back to a content hash of the text, and
 #'   duplicate texts among audited units are refused rather than matched
 #'   arbitrarily.
 #' @return A `gold_set`: the data plus split assignment, the stored holdout
@@ -70,14 +71,8 @@ gold_set <- function(data, text, label, split = c(dev = 0.6, test = 0.4),
                   sum(is.na(data[[text]])), text))
   }
   data$.text_hash <- .text_hash(data[[text]])
-  if (!is.null(id)) {
-    if (anyNA(data[[id]]) || anyDuplicated(data[[id]])) {
-      abort(sprintf("`id` column '%s' must have no NA and no duplicate values.", id))
-    }
-  }
-  if (is.null(names(split)) || abs(sum(split) - 1) > 1e-8) {
-    abort("`split` must be a named vector of proportions summing to 1.")
-  }
+  if (!is.null(id)) .check_unit_ids(data[[id]], id, "`data`")
+  .check_split_spec(split)
   if (!is.character(holdout) || length(holdout) != 1L || is.na(holdout) ||
       !nzchar(holdout)) {
     abort("`holdout` must be a single, non-empty split name.")
@@ -121,6 +116,55 @@ gold_set <- function(data, text, label, split = c(dev = 0.6, test = 0.4),
          created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")),
     class = "gold_set"
   )
+}
+
+# Internal: refuse missing or repeated unit identifiers, naming them.
+.check_unit_ids <- function(values, id, where) {
+  missing <- sum(is.na(values))
+  repeated <- unique(values[!is.na(values) & duplicated(values)])
+  if (!missing && !length(repeated)) return(invisible(NULL))
+  problems <- c(
+    if (missing) sprintf("%d row(s) have no id", missing),
+    if (length(repeated)) {
+      sprintf("%d id(s) repeat (%s)", length(repeated), .quote_some(repeated))
+    })
+  abort(sprintf("`id` column '%s' must have no NA and no duplicate values in %s: %s.",
+                id, where, paste(problems, collapse = "; ")))
+}
+
+# Internal: refuse a split specification that cannot be allocated as stated.
+.check_split_spec <- function(split) {
+  labels <- names(split)
+  if (!is.numeric(split) || !length(split) || is.null(labels)) {
+    abort("`split` must be a named vector of proportions summing to 1.")
+  }
+  unnamed <- is.na(labels) | !nzchar(trimws(labels))
+  if (any(unnamed)) {
+    abort(sprintf("`split` entries %s have no name; name every split.",
+                  paste(which(unnamed), collapse = ", ")))
+  }
+  repeated <- unique(labels[duplicated(labels)])
+  if (length(repeated)) {
+    abort(sprintf("`split` names must be unique; %s appear(s) more than once.",
+                  .quote_some(repeated)))
+  }
+  bad <- !is.finite(split) | split < 0
+  if (any(bad)) {
+    abort(sprintf("`split` proportions must be finite and nonnegative: %s.",
+                  paste(sprintf("%s = %s", labels[bad], format(split[bad])),
+                        collapse = ", ")))
+  }
+  if (abs(sum(split) - 1) > 1e-8) {
+    abort(sprintf("`split` must be a named vector of proportions summing to 1; these sum to %s.",
+                  format(sum(split))))
+  }
+  invisible(NULL)
+}
+
+# Internal: quote the first few values for an error message.
+.quote_some <- function(x, n = 5L) {
+  shown <- paste0("'", utils::head(as.character(x), n), "'", collapse = ", ")
+  if (length(x) > n) paste0(shown, ", ...") else shown
 }
 
 # Internal: the holdout split name stored on a gold set.
@@ -174,7 +218,13 @@ print.gold_set <- function(x, ...) {
 gold_split <- function(x, split = "dev") {
   stopifnot(inherits(x, "gold_set"))
   if (!split %in% unique(x$split)) {
-    abort(sprintf("No split named '%s' in this gold set.", split))
+    counts <- table(x$split, x$data[[x$label]])
+    allocated <- vapply(rownames(counts), function(s) {
+      sprintf("%s: %s", s, paste(sprintf("%s %d", colnames(counts), counts[s, ]),
+                                 collapse = ", "))
+    }, character(1))
+    abort(c(sprintf("No unit of this gold set is in a split named '%s'.", split),
+            i = paste("Units by split and label:", paste(allocated, collapse = "; "))))
   }
   x$data[x$split == split, , drop = FALSE]
 }

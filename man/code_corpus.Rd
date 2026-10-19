@@ -16,7 +16,8 @@ code_corpus(corpus, protocol, text, id = NULL, .runner = NULL, ...)
 \item{id}{Optional name of a stable unit-identifier column in \code{corpus}. Carry
 it through so \code{\link[=gold_correct]{gold_correct()}} can link audit units to corpus rows by id,
 the only way to disambiguate rows that share identical text. Use the same
-\code{id} here as in \code{\link[=gold_set]{gold_set()}}.}
+\code{id} here as in \code{\link[=gold_set]{gold_set()}}. Its values must be unique and nonmissing;
+the corpus is refused before any call otherwise.}
 
 \item{.runner}{A function accepting \verb{(experiments, ...)}. It must return
 the experiment rows with their identifying columns and a nonmissing
