@@ -50,15 +50,11 @@ bundle_coder_artifacts <- function(coded, validation, gold, protocol, file,
   summary_path <- file.path(out_dir, "summary.txt")
   notice <- LLMR.shiny::demo_notice()
 
-  utils::write.csv(tibble::as_tibble(coded), coded_path, row.names = FALSE)
-
-  if (isTRUE(coded_demo) && file.exists(coded_path)) {
-    exported <- tryCatch(LLMR.shiny::read_csv_path(coded_path), error = function(e) NULL)
-    if (is.data.frame(exported)) {
-      exported$demo_notice <- notice
-      utils::write.csv(exported, coded_path, row.names = FALSE)
-    }
-  }
+  # The notice is added before the one write, so a demo export cannot leave
+  # without it and the coded values are written as they are, not re-read.
+  exported <- tibble::as_tibble(coded)
+  if (isTRUE(coded_demo)) exported$demo_notice <- rep(notice, nrow(exported))
+  utils::write.csv(exported, coded_path, row.names = FALSE)
 
   report_obj <- LLMR::report(validation, gold = gold, protocol = protocol)
   report_text <- paste(utils::capture.output(print(report_obj)), collapse = "\n")

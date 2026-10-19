@@ -60,6 +60,12 @@
   '0.7x' is not a number." The field used to drop tokens that did not parse
   and keep the rest: "0, 0.7x, 1" ran temperatures 0 and 1, "0,0,7" (a
   decimal comma) ran 0 and 7, and "0, -1, 5" ran all three.
+* A demo export from the Studio's coding tab writes `coded.csv` once, with
+  the `demo_notice` column added to the coded rows. The export used to write
+  the file, read it back, and write it again with the notice. When the
+  re-read failed, the file went out without its notice and no message was
+  shown, and the re-read inferred column types, so an identifier such as
+  `007` was written as `7`.
 * Replicate passes whose runner rows omit a column are bound with missing
   values of that column's type. When the first pass lacked a date-time
   column, its values used to become plain numbers, and a missing list entry

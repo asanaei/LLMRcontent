@@ -140,6 +140,40 @@ test_that("the coder bundle marks demo components separately", {
   ))
 })
 
+test_that("a demo coder bundle carries its notice and the coded values", {
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
+  gold <- fix_gold(8)
+  protocol <- protocol_lock(protocol(fix_codebook(), fix_config(),
+                                     label = "demo-bundle"))
+  validation <- validate_protocol(protocol, gold,
+                                  .runner = fake_runner_perfect)
+  ids <- c("007", "010", "12345678901234567890", "0.50")
+  coded <- code_corpus(data.frame(doc = ids, text = gold$data$text[1:4]),
+                       protocol, "text", id = "doc",
+                       .runner = fake_runner_perfect)
+  path <- tempfile(fileext = ".zip")
+  out_dir <- tempfile("demo-bundle-")
+  dir.create(out_dir)
+  on.exit(unlink(c(path, out_dir), recursive = TRUE), add = TRUE)
+
+  # The export does not read its own CSV back, so a reader that fails or
+  # infers types cannot drop the notice or alter the identifiers.
+  local_mocked_bindings(
+    read_csv_path = function(...) stop("the export must not re-read coded.csv"),
+    .package = "LLMR.shiny"
+  )
+  expect_invisible(LLMRcontent:::bundle_coder_artifacts(
+    coded, validation, gold, protocol, path, demo = TRUE
+  ))
+  utils::unzip(path, exdir = out_dir)
+  exported <- utils::read.csv(file.path(out_dir, "coded.csv"),
+                              colClasses = "character")
+  expect_identical(exported$demo_notice,
+                   rep(LLMR.shiny::demo_notice(), length(ids)))
+  expect_identical(exported$doc, ids)
+  expect_identical(exported$label, coded$data$label)
+})
+
 test_that("the GUI assembles when its suggested packages are present", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
