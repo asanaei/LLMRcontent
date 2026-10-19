@@ -6,7 +6,7 @@
   without notice: a vector estimate was cut to its first element, a
   character value was converted with `as.numeric()`, an infinite estimate
   counted as valid in `audit_stability()` and `audit_fragility()`, and an
-  estimator error became `NA` with its message discarded. Such cells now
+  estimator error became `NA` with its message discarded. Such cells
   have `estimate = NA`, and the warning "The estimator failed in k of n
   audit cell(s)." names the first failure. An estimate of `NA` or `NaN`
   has status `"missing"` and raises no warning.
@@ -41,7 +41,7 @@
   be an integer sum of `sent_tokens` and `rec_tokens` that read missing
   counts as 0 and ignored `total_tokens`, so usage that was never reported
   showed as 0 and a call with one count missing contributed the other.
-  `tokens` is now a double.
+  `tokens` is a double.
 * Token count columns that are not numeric, or that hold negative,
   fractional, or infinite values, are treated as unknown, with the warnings
   "The runner's sent_tokens column is <character>, not numeric; its counts
@@ -69,8 +69,9 @@
   audit button is disabled with a reason that names the token, such as
   "The audit is disabled until the temperatures are numbers from 0 to 2;
   '0.7x' is not a number." The field used to drop tokens that did not parse
-  and keep the rest: "0, 0.7x, 1" ran temperatures 0 and 1, "0,0,7" (a
-  decimal comma) ran 0 and 7, and "0, -1, 5" ran all three.
+  and keep the rest: "0, 0.7x, 1" built arms for temperatures 0 and 1,
+  "0,0,7" (a decimal comma) built arms for 0 and 7, and "0, -1, 5" built
+  arms for all three.
 * The `table` and `usage` fields of `tune_protocol()` results gain a
   `protocol_id` column, each protocol's position in `protocols`, which the
   sort by accuracy keeps. The README selected the winner with
@@ -101,9 +102,10 @@
   every unit in one split, and an empty name created a split named "". A
   sum other than 1 is reported with the actual sum. Valid specifications
   allocate units as before.
-* `gold_split()` for a split with no units says so and lists the units by
-  split and label. It used to report only "No split named 'test' in this
-  gold set."
+* The `gold_split()` error for a split with no units, "No split named
+  'test' in this gold set.", is followed by the units by split and label,
+  so that a split the allocation left empty can be told from a misspelled
+  name.
 * The Studio reads uploaded and demo CSV files with every column as text,
   so identifiers keep their leading zeros and all their digits. Once the
   columns are mapped, identifier columns (the mapped id column and columns

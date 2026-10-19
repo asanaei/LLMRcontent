@@ -57,7 +57,7 @@ test_that("tibble coercion dispatches on protocol tuning results", {
   expect_s3_class(tab, "tbl_df")
   expect_false(inherits(tab, "protocol_tuning"))
   expect_named(tab, c(
-    "protocol", "n", "accuracy", "acc_lo", "acc_hi",
+    "protocol", "protocol_id", "n", "accuracy", "acc_lo", "acc_hi",
     "macro_f1", "parse_failures", "tokens"
   ))
   expect_equal(tab$protocol, "candidate")

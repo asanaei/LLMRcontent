@@ -223,7 +223,7 @@ gold_split <- function(x, split = "dev") {
       sprintf("%s: %s", s, paste(sprintf("%s %d", colnames(counts), counts[s, ]),
                                  collapse = ", "))
     }, character(1))
-    abort(c(sprintf("No unit of this gold set is in a split named '%s'.", split),
+    abort(c(sprintf("No split named '%s' in this gold set.", split),
             i = paste("Units by split and label:", paste(allocated, collapse = "; "))))
   }
   x$data[x$split == split, , drop = FALSE]

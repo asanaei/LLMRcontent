@@ -68,7 +68,7 @@ test_that("an empty requested split reports the allocation by label", {
   expect_false("test" %in% g$split)
   err <- tryCatch(gold_split(g, "test"), error = function(e) e)
   expect_match(conditionMessage(err),
-               "No unit of this gold set is in a split named 'test'", fixed = TRUE)
+               "No split named 'test' in this gold set.", fixed = TRUE)
   expect_match(conditionMessage(err), "dev: x 4, y 4", fixed = TRUE)
   expect_identical(nrow(gold_split(g, "dev")), 8L)
 })
