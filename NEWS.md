@@ -78,6 +78,15 @@
   protocol only when the list names equal the labels, and the labels are
   made unique with suffixes such as `.1` when protocols share one. The
   README and the usage capsule select by `protocol_id`.
+* The getting-started vignette starts from a finite corpus, draws the
+  audited statements from it by simple random sampling, and splits them
+  with `stratify = FALSE`, so that the test split is a simple random sample
+  of the corpus. It describes the estimator `gold_correct()` implements: the
+  corpus share of model labels plus the mean paired difference between the
+  human and model indicators. The vignette used to form its corpus by
+  appending new statements to the gold data, split them with the default
+  stratification by label, and describe a confusion-matrix adjustment, so
+  its own `design = "srs"` assertion did not hold.
 * `code_corpus()` refuses an `id` column with missing or repeated values
   before any call, with the error "`id` column 'doc' must have no NA and no
   duplicate values in `corpus`: ...", which counts the missing ids and names
