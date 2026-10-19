@@ -20,13 +20,13 @@ integrity checks and offline replay.
 ## Install
 
 ```r
-remotes::install_github("asanaei/LLMRcontent")   # depends on LLMR (>= 0.8.6)
+remotes::install_github("asanaei/LLMRcontent")   # depends on LLMR (>= 0.8.11)
 ```
 
 The optional Shiny interface calls the same package functions. Install its
 dependencies with
-`install.packages(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))`,
-then start it with `run_content_studio()`. Use the functions below in scripts.
+`install.packages(c("shiny", "bslib", "DT", "ggplot2", "LLMR.shiny"))`
+(LLMR.shiny 0.1.3 or later), then start it with `run_content_studio()`. Use the functions below in scripts.
 
 ## Coding
 
@@ -61,7 +61,7 @@ validate_protocol(protocol, gold, split = NULL, .runner = NULL, ...)
   # split = NULL means the gold set's holdout split ("test" by default)
 code_corpus(corpus, protocol, text, id = NULL, .runner = NULL, ...)
 
-gold_correct(coded, gold, conf = 0.95)
+gold_correct(coded, gold, conf = 0.95, design = c("unknown", "srs"))
 
 coder_agreement(x, cols = NULL)
 
@@ -70,7 +70,7 @@ LLMR::report(x, ...)
 tibble::as_tibble(x, ...)
 ```
 
-`tune_protocol()` returns `table`, `per_category`, and `split` fields.
+`tune_protocol()` returns `table`, `per_category`, `split`, and `usage` fields.
 `code_corpus()` returns `data`, protocol identifiers, the text and label column
 names, the optional id column name, and the codebook labels as ordinary fields.
 Use `tibble::as_tibble()` to extract either main table.
@@ -80,6 +80,7 @@ Use `tibble::as_tibble()` to extract either main table.
 ```r
 library(LLMRcontent)
 
+set.seed(110)                            # the split assignment draws locally
 gold <- gold_set(labeled_df, text = "text", label = "label")
 
 cb <- codebook("tone", "one sentence",
@@ -87,15 +88,18 @@ cb <- codebook("tone", "one sentence",
        cb_category("negative", "Critical or alarmed.")))
 
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0)
-ps  <- list(protocol(cb, cfg, label = "base"),
-            protocol(cb, cfg, prompt = "{codebook}\n\n{text}\nLabel:",
-                     label = "terse"))
+ps  <- list(base = protocol(cb, cfg, label = "base"),
+            terse = protocol(cb, cfg, prompt = "{codebook}\n\n{text}\nLabel:",
+                             label = "terse"))
 
 tuning <- tune_protocol(ps, gold)        # compare protocols on the dev split
-winner <- protocol_lock(ps[[1]])         # lock the selected measurement protocol
+best <- tuning$table$protocol[[1]]       # the most accurate protocol's label
+winner <- protocol_lock(ps[[best]])      # lock the selected measurement protocol
 v <- validate_protocol(winner, gold)     # evaluate on the test split
 coded <- code_corpus(big_df, winner, "text")
-correction <- gold_correct(coded, gold)  # corrected prevalences with SEs
+# design = "srs" asserts that the holdout units are a simple random sample
+# of the coded corpus; gold_correct() refuses to estimate without a design.
+correction <- gold_correct(coded, gold, design = "srs")  # prevalences with SEs
 
 LLMR::diagnostics(v)
 LLMR::diagnostics(correction)
@@ -121,6 +125,12 @@ tibble::as_tibble(coded)
   included in the coding report.
 - Validation counts `NA` labels as errors. `gold_correct()` reports parse
   failures and conditions prevalence estimates on parsed corpus labels.
+- `gold_correct()` requires `design = "srs"`, a statement that the holdout
+  units are a simple random sample of the coded corpus. Its default,
+  `"unknown"`, refuses to estimate.
+- `tuning$table` is sorted by accuracy, and its `protocol` column holds the
+  protocol labels, made unique when two protocols share one. Name the
+  candidate list by distinct labels to select the winner by name.
 - Set `temperature = 0` for deterministic annotation. Use replicates when the
   analysis concerns variation across model responses.
 - Custom prompts must contain `{text}`; `{codebook}` inserts `format_codebook()`.
@@ -138,6 +148,12 @@ tibble::as_tibble(coded)
 - "The holdout split (...) is sealed for tuning" means tune on the development
   split and use `validate_protocol()` for the holdout.
 - "Gold labels contain NA" means adjudicate or drop those rows before `gold_set()`.
+- "gold_correct() needs a declared sampling design" means pass
+  `design = "srs"` when the holdout units were drawn at random from the
+  coded corpus; otherwise the correction does not apply.
+- An error of class `llmrcontent_run_failure` means a model call failed or
+  returned no response. `e$completed` holds the call rows that succeeded and
+  `e$failed` identifies the failed calls, by `id` when one is declared.
 - "must contain the {text} placeholder" means fix the prompt template.
 - Many `NA` labels in output means model replies do not match
   `codebook_labels()`; tighten the prompt's final instruction or the parser.
@@ -184,10 +200,12 @@ tibble::as_tibble(audit)
 ### Estimator contract
 
 `estimator` receives `data` with one added character column, `label`, and must
-return one numeric value. The `label` column may contain `NA` for parse
-failures, so the estimator must define how to handle them. If the estimator
-errors in a cell, that cell receives `estimate = NA`; the remaining cells are
-still computed.
+return one finite numeric value. The `label` column may contain `NA` for parse
+failures, so the estimator must define how to handle them. A cell whose
+estimator errors, or returns anything other than one finite number, receives
+`estimate = NA`, with the outcome in `estimate_status` and the reason in
+`estimate_note`; the remaining cells are still computed, and a warning counts
+the failed cells.
 
 ### Canonical workflow
 
@@ -362,7 +380,14 @@ list columns. It must return those rows with a `response_text` column. Token
 columns are retained when present, and supplied `response_id` values remain
 available to functions that keep the unit-level call records. When the function
 supplies a `success` column, failed rows abort the operation rather than
-becoming labels or estimates.
+becoming labels or estimates, as do missing responses. The error has class
+`llmrcontent_run_failure`; its `completed` field keeps the rows that
+succeeded:
+
+```r
+calls <- tryCatch(code_corpus(big_df, winner, "text", .runner = runner),
+                  llmrcontent_run_failure = function(e) e$completed)
+```
 
 The function returned by `archive_replay()` can be passed through the `.runner`
 argument of `code_corpus()` or `audit_run()` to recompute results from stored

@@ -19,3 +19,12 @@ test_that("the AI capsule mentions only real functions", {
   unknown <- fns[!vapply(fns, known, logical(1))]
   expect_identical(unknown, character(0))
 })
+
+test_that("the AI capsule's gold_correct() calls declare a design", {
+  path <- system.file("ai", "LLMRcontent.md", package = "LLMRcontent")
+  lines <- readLines(path, warn = FALSE)
+  calls <- grep("gold_correct(coded", lines, fixed = TRUE, value = TRUE)
+  expect_gte(length(calls), 2L)
+  expect_true(all(grepl("design =", calls, fixed = TRUE)))
+  expect_false(any(grepl("protocol_lock(ps[[1]])", lines, fixed = TRUE)))
+})
