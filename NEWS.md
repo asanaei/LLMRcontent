@@ -19,6 +19,14 @@
   the unit's `id` value when the corpus or gold set declares one. The error
   used to carry only a count of failed rows, and the work of the whole run
   was lost when one call failed.
+* The Studio's robustness audit refuses a temperature field in which a
+  token is not a decimal number or lies outside the range `llm_config()`
+  accepts, 0 to 1 for Anthropic and 0 to 2 for other providers. The Run
+  audit button is disabled with a reason that names the token, such as
+  "The audit is disabled until the temperatures are numbers from 0 to 2;
+  '0.7x' is not a number." The field used to drop tokens that did not parse
+  and keep the rest: "0, 0.7x, 1" ran temperatures 0 and 1, "0,0,7" (a
+  decimal comma) ran 0 and 7, and "0, -1, 5" ran all three.
 * Replicate passes whose runner rows omit a column are bound with missing
   values of that column's type. When the first pass lacked a date-time
   column, its values used to become plain numbers, and a missing list entry

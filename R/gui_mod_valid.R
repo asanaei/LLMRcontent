@@ -49,6 +49,34 @@ valid_demo_responder <- function(labels) {
   }
 }
 
+# Temperatures for the audit grid, from the comma-separated field. Each
+# nonempty token must be a decimal number in the range llm_config() accepts
+# for the provider: 0 to 1 for Anthropic, 0 to 2 otherwise. The first token
+# that fails is named in `problem`, and `values` is then empty, so no grid is
+# built from part of the input.
+.valid_parse_temperatures <- function(text, provider = NULL) {
+  tokens <- trimws(strsplit(paste(text, collapse = ","), ",", fixed = TRUE)[[1]])
+  tokens <- tokens[nzchar(tokens)]
+  upper <- if (identical(provider, "anthropic")) 1 else 2
+  range <- if (upper == 1) "from 0 to 1, the range for Anthropic models"
+           else "from 0 to 2"
+  fail <- function(problem) {
+    list(values = numeric(), problem = problem, range = range)
+  }
+  if (!length(tokens)) return(fail("no temperature was entered"))
+  number <- grepl("^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$",
+                  tokens)
+  if (!all(number)) {
+    return(fail(sprintf("'%s' is not a number", tokens[!number][1])))
+  }
+  values <- as.numeric(tokens)
+  outside <- values < 0 | values > upper
+  if (any(outside)) {
+    return(fail(sprintf("'%s' is outside that range", tokens[outside][1])))
+  }
+  list(values = values, problem = NULL, range = range)
+}
+
 valid_progress_runner <- function(runner) {
   force(runner)
   function(experiments, ...) {
@@ -192,10 +220,10 @@ mod_valid_server <- function(id, shared, active = NULL) {
       x <- trimws(unlist(strsplit(input$labels %||% "", ",", fixed = TRUE)))
       x[nzchar(x)]
     }
-    parse_temps <- function() {
-      x <- suppressWarnings(as.numeric(trimws(unlist(strsplit(input$temps %||% "0", ",")))))
-      x[!is.na(x)]
+    temperature_input <- function() {
+      .valid_parse_temperatures(input$temps %||% "0", shared$provider())
     }
+    parse_temps <- function() temperature_input()$values
 
     output$run_audit_action <- shiny::renderUI({
       text_col <- input$text_col %||% ""
@@ -212,8 +240,10 @@ mod_valid_server <- function(id, shared, active = NULL) {
         "The audit is disabled until the prompt contains {text}."
       } else if (!length(input$orders %||% character())) {
         "The audit is disabled until a label order is selected."
-      } else if (!length(parse_temps())) {
-        "The audit is disabled until a numeric temperature is entered."
+      } else if (!is.null(temperature_input()$problem)) {
+        temps <- temperature_input()
+        sprintf("The audit is disabled until the temperatures are numbers %s; %s.",
+                temps$range, temps$problem)
       } else if (identical(shared$mode(), "live") &&
                  !nzchar(trimws(shared$model() %||% ""))) {
         "The audit is disabled until a model is entered."
@@ -308,8 +338,10 @@ mod_valid_server <- function(id, shared, active = NULL) {
         warn_user("Select at least one label order.")
         return()
       }
-      if (!length(parse_temps())) {
-        warn_user("Enter at least one numeric temperature.")
+      temps <- temperature_input()
+      if (!is.null(temps$problem)) {
+        warn_user(sprintf("Temperatures must be numbers %s; %s.",
+                          temps$range, temps$problem))
         return()
       }
       if (identical(shared$mode(), "live") &&
