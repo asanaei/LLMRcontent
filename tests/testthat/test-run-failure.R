@@ -267,3 +267,54 @@ test_that("call batches bind with typed missing values in either order", {
   expect_s3_class(out$when, "POSIXct")
   expect_identical(out$x, 1:3)
 })
+
+test_that("failed rows carry the right ids when the runner retypes its keys", {
+  p <- protocol_lock(protocol(fix_codebook(), fix_config()))
+  ids <- sprintf("d%02d", 1:12)
+  corpus <- data.frame(doc = ids, text = rep(c("great news", "awful mess"), 6))
+  for (retype in list(function(x) factor(x, levels = rev(sort(unique(x)))),
+                      as.character, as.numeric)) {
+    runner <- function(experiments, ...) {
+      out <- fake_runner_perfect(experiments, ...)
+      out$success <- out$unit_id != 10L
+      out$unit_id <- retype(out$unit_id)
+      out$protocol_id <- retype(out$protocol_id)
+      out
+    }
+    e <- catch_run_failure(code_corpus(corpus, p, "text", id = "doc",
+                                       .runner = runner))
+    expect_identical(e$failed$doc, "d10")
+    expect_identical(e$failed$unit_id, 10L)
+    expect_identical(sort(e$completed$doc), ids[-10])
+    expect_type(e$completed$unit_id, "integer")
+  }
+
+  plan <- audit_plan(data.frame(text = c("one", "two", "three")), "text",
+                     function(d) mean(d$label == "yes"), c("yes", "no"), "{text}")
+  plan <- audit_add_models(plan, list(a = LLMR::llm_config("groq", "a", temperature = 0)))
+  runner <- function(experiments, ...) {
+    experiments$response_text <- "yes"
+    experiments$success <- experiments$unit_id != 2L
+    experiments$unit_id <- as.character(experiments$unit_id)
+    experiments$cell <- factor(experiments$cell)
+    experiments
+  }
+  e <- catch_run_failure(audit_run(plan, .runner = runner))
+  expect_identical(e$failed$unit_id, 2L)
+  expect_identical(e$failed$cell, 1L)
+})
+
+test_that("runner columns without a name do not block the bind", {
+  out <- .bind_call_rows(list(
+    stats::setNames(data.frame(1:2, 3:4), c("x", "")),
+    data.frame(x = 5L)))
+  expect_named(out, "x")
+  expect_identical(out$x, c(1L, 2L, 5L))
+  stamp <- tibble::tibble(x = 1L)
+  stamp$m <- matrix(1:2, 1)
+  stamp$df <- data.frame(p = 1L)
+  out <- .bind_call_rows(list(data.frame(x = 2L), stamp))
+  expect_identical(dim(out$m), c(2L, 2L))
+  expect_true(all(is.na(out$m[1, ])))
+  expect_identical(out$df$p, c(NA, 1L))
+})

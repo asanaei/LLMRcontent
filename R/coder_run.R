@@ -57,6 +57,9 @@
       abort("`.runner` must preserve experiment row identity.")
     }
     out <- out[match(expected_key, result_key), , drop = FALSE]
+    # The keys are matched as text; keep the experiment's own key values.
+    out$protocol_id <- pass$protocol_id
+    out$unit_id <- pass$unit_id
     out$replicate <- r
     .check_run_failure(out, c("protocol_id", "unit_id", "replicate"),
                        previous = passes, ids = .unit_ids)
@@ -271,8 +274,13 @@ as_tibble.protocol_tuning <- function(x, ...) {
 }
 
 # Runner batches may omit optional columns. Missing entries inherit the
-# supplied column's type, including list and date columns.
+# supplied column's type, including list and date columns. A column without a
+# name cannot be addressed by any caller and is left out.
 .bind_call_rows <- function(batches) {
+  batches <- lapply(batches, function(batch) {
+    named <- !is.na(names(batch)) & nzchar(names(batch))
+    batch[named]
+  })
   columns <- unique(unlist(lapply(batches, names), use.names = FALSE))
   prototypes <- lapply(columns, function(column) {
     first <- which(vapply(batches, function(x) column %in% names(x), logical(1)))[1]
@@ -280,13 +288,19 @@ as_tibble.protocol_tuning <- function(x, ...) {
   })
   names(prototypes) <- columns
   batches <- lapply(batches, function(batch) {
-    batch <- tibble::as_tibble(batch)
+    batch <- tibble::as_tibble(batch, .name_repair = "minimal")
     for (column in setdiff(columns, names(batch))) {
-      batch[[column]] <- prototypes[[column]][rep(NA_integer_, nrow(batch))]
+      batch[[column]] <- .missing_like(prototypes[[column]], nrow(batch))
     }
     batch[columns]
   })
   do.call(rbind, batches)
+}
+
+# Internal: `n` missing values of the same type as `x`.
+.missing_like <- function(x, n) {
+  if (length(dim(x)) == 2L) x[rep(NA_integer_, n), , drop = FALSE]
+  else x[rep(NA_integer_, n)]
 }
 
 # Recovery starts only after the runner's shape and identities are checked.

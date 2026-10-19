@@ -152,6 +152,9 @@ audit_run <- function(plan, .runner = NULL, ...) {
     abort("`.runner` must preserve experiment row identity.")
   }
   res <- res[match(expected_key, result_key), , drop = FALSE]
+  # The keys are matched as text; keep the experiment's own key values.
+  res$cell <- exps$cell
+  res$unit_id <- exps$unit_id
   .check_run_failure(res, c("cell", "unit_id"), audit = TRUE)
   res$label <- vapply(res$response_text, .normalize_label, character(1),
                       labels = plan$labels, USE.NAMES = FALSE)

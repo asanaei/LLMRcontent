@@ -125,7 +125,8 @@
 * Replicate passes whose runner rows omit a column are bound with missing
   values of that column's type. When the first pass lacked a date-time
   column, its values used to become plain numbers, and a missing list entry
-  used to be a logical `NA`.
+  used to be a logical `NA`. Runner columns without a name are left out of
+  the bound rows.
 
 # LLMRcontent 0.2.1
 
