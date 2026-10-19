@@ -139,8 +139,6 @@
 #'       accuracy. The columns have the following meanings.
 #'       \itemize{
 #'         \item `protocol`, the protocol label, made unique when needed.
-#'         \item `protocol_id`, the protocol's position in `protocols`, which
-#'           identifies it whatever its label.
 #'         \item `n`, the number of scored units.
 #'         \item `accuracy`, the proportion of correct labels.
 #'         \item `acc_lo` and `acc_hi`, the limits of the exact 95 percent
@@ -149,13 +147,15 @@
 #'           category scores counted as zero.
 #'         \item `parse_failures`, the number of missing modal labels.
 #'         \item `tokens`, the subtotal of known token totals.
+#'         \item `protocol_id`, the protocol's position in `protocols`, which
+#'           identifies it whatever its label.
 #'       }}
 #'     \item{per_category}{Category-level scores, named by the protocol
 #'       labels used in `table`.}
 #'     \item{split}{The evaluated split name.}
 #'     \item{usage}{A tibble in the same protocol order as `table`, with
-#'       columns `protocol`, `protocol_id`, `calls` (model calls, replicates
-#'       included), and `tokens_unknown` (calls that reported no usage).}
+#'       columns `protocol`, `calls` (model calls, replicates included),
+#'       `tokens_unknown` (calls that reported no usage), and `protocol_id`.}
 #'   }
 #' @inheritSection code_corpus Failed calls
 #' @examples
@@ -225,15 +225,14 @@ tune_protocol <- function(protocols, gold, split = "dev",
     ci <- .acc_ci(ri$label, truth)
     per_cat[[plabels[[p]]]] <<- sc$per_category
     u <- .tokens_of(ri)
-    usage[[p]] <<- tibble::tibble(protocol = plabels[[p]], protocol_id = p,
-                                  calls = u$calls, tokens_unknown = u$unknown)
+    usage[[p]] <<- tibble::tibble(protocol = plabels[[p]], calls = u$calls,
+                                  tokens_unknown = u$unknown, protocol_id = p)
     tibble::tibble(
       protocol = plabels[[p]],
-      protocol_id = p,
       n = sc$n, accuracy = sc$accuracy,
       acc_lo = ci[1], acc_hi = ci[2],
       macro_f1 = sc$macro_f1, parse_failures = sc$parse_failures,
-      tokens = u$tokens)
+      tokens = u$tokens, protocol_id = p)
   })
   table <- do.call(rbind, rows)
   ord <- order(-table$accuracy)

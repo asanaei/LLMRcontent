@@ -218,7 +218,7 @@ print.gold_set <- function(x, ...) {
 gold_split <- function(x, split = "dev") {
   stopifnot(inherits(x, "gold_set"))
   if (!split %in% unique(x$split)) {
-    counts <- table(x$split, x$data[[x$label]])
+    counts <- table(x$split, as.character(x$data[[x$label]]))
     allocated <- vapply(rownames(counts), function(s) {
       sprintf("%s: %s", s, paste(sprintf("%s %d", colnames(counts), counts[s, ]),
                                  collapse = ", "))

@@ -28,8 +28,6 @@ A list of class \code{protocol_tuning} with the following elements.
 accuracy. The columns have the following meanings.
 \itemize{
 \item \code{protocol}, the protocol label, made unique when needed.
-\item \code{protocol_id}, the protocol's position in \code{protocols}, which
-identifies it whatever its label.
 \item \code{n}, the number of scored units.
 \item \code{accuracy}, the proportion of correct labels.
 \item \code{acc_lo} and \code{acc_hi}, the limits of the exact 95 percent
@@ -38,13 +36,15 @@ binomial confidence interval.
 category scores counted as zero.
 \item \code{parse_failures}, the number of missing modal labels.
 \item \code{tokens}, the subtotal of known token totals.
+\item \code{protocol_id}, the protocol's position in \code{protocols}, which
+identifies it whatever its label.
 }}
 \item{per_category}{Category-level scores, named by the protocol
 labels used in \code{table}.}
 \item{split}{The evaluated split name.}
 \item{usage}{A tibble in the same protocol order as \code{table}, with
-columns \code{protocol}, \code{protocol_id}, \code{calls} (model calls, replicates
-included), and \code{tokens_unknown} (calls that reported no usage).}
+columns \code{protocol}, \code{calls} (model calls, replicates included),
+\code{tokens_unknown} (calls that reported no usage), and \code{protocol_id}.}
 }
 }
 \description{
