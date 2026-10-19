@@ -34,9 +34,9 @@ no test, example, or check step makes a network call or needs an API key.
 
 ## Test environments
 
-- local macOS 26.7.1 (arm64), R 4.4.3, with LLMR 0.8.13 and LLMR.shiny
-  0.1.3 installed
-- R CMD check --as-cran --no-manual with _R_CHECK_FORCE_SUGGESTS_=false
+- local macOS 26.7.1 (arm64), R 4.4.3, R CMD check --as-cran, with LLMR
+  0.8.14 and LLMR.shiny 0.1.3 installed
+- the same machine with LLMR 0.8.11, the declared minimum: Status OK
 
 ## R CMD check results
 
