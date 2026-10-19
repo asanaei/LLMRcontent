@@ -41,6 +41,7 @@
 #'     \item `estimate_status`, the outcome of evaluating the estimator.
 #'     \item `estimate_note`, a description of an unsuccessful evaluation,
 #'       or `NA` for a usable estimate.
+#'     \item `n_labels`, the number of parsed labels the estimator received.
 #'     \item `parse_failures`, the number of unparsed labels.
 #'     \item `tokens`, the subtotal of known token totals.
 #'     \item `tokens_unknown`, the number of calls that reported no usage.
@@ -167,7 +168,8 @@ audit_run <- function(plan, .runner = NULL, ...) {
       cell = g, prompt = grid$prompt[g], model = grid$model[g],
       label_order = grid$label_order[g], temperature = grid$temperature[g],
       estimate = est$estimate, estimate_status = est$status,
-      estimate_note = est$note, parse_failures = sum(is.na(ri$label)),
+      estimate_note = est$note, n_labels = sum(!is.na(ri$label)),
+      parse_failures = sum(is.na(ri$label)),
       tokens = tok$tokens, tokens_unknown = tok$unknown)
   }))
   broken <- out$estimate_status %in% c("error", "invalid")

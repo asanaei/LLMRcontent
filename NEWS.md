@@ -10,6 +10,8 @@
   have `estimate = NA`, and the warning "The estimator failed in k of n
   audit cell(s)." names the first failure. An estimate of `NA` or `NaN`
   has status `"missing"` and raises no warning.
+* Audit cells gain an `n_labels` column, the number of parsed labels the
+  estimator received.
 * `audit_placebo(type = "label_permutation")` applies the same rule to
   each permuted estimate, keeps the first reason in the new `perm_note`
   column, and warns "k permutation estimate(s) produced no usable value

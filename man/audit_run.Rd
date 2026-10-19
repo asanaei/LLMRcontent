@@ -36,6 +36,7 @@ The \code{cells} columns have the following meanings.
 \item \code{estimate_status}, the outcome of evaluating the estimator.
 \item \code{estimate_note}, a description of an unsuccessful evaluation,
 or \code{NA} for a usable estimate.
+\item \code{n_labels}, the number of parsed labels the estimator received.
 \item \code{parse_failures}, the number of unparsed labels.
 \item \code{tokens}, the subtotal of known token totals.
 \item \code{tokens_unknown}, the number of calls that reported no usage.
