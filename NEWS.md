@@ -20,6 +20,15 @@
   return 0 in both cases, breaking ties alphabetically, so a cell whose
   replies all failed to parse could flip the sign of a reference estimate
   of 1.
+* When the reference estimate is 0, the Studio's audit summary says that
+  the reference has no sign, so no cell can change it, and for the
+  most-common-label estimand that a cell estimate of 1 is not counted as a
+  change. The summary used to say "No cell in this grid changes the
+  reference sign.", which read as a stable result.
+* The Studio's audit summary begins "Across the k of n cells with an
+  estimate" when some cells have no estimate. It used to say "Across n
+  cells" although the range and the sign share cover only the cells with an
+  estimate.
 * Token usage that the runner does not report is unknown, not zero. A
   call's tokens are the runner's `total_tokens` when it reports one, and
   otherwise `sent_tokens` plus `rec_tokens` when both are reported. The

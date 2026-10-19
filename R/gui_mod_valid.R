@@ -113,6 +113,7 @@ mod_valid_server <- function(id, shared, active = NULL) {
     ns <- session$ns
     data_raw <- shiny::reactiveVal(NULL)
     audit    <- shiny::reactiveVal(NULL)
+    audit_estimand <- shiny::reactiveVal(NULL)
     audit_timing <- shiny::reactiveVal(NULL)
     run_error <- shiny::reactiveVal(NULL)
 
@@ -480,6 +481,7 @@ mod_valid_server <- function(id, shared, active = NULL) {
         res$value
       }
       audit(out)
+      audit_estimand(input$estimand %||% "share")
       audit_timing(finish_call_timing(call_batches, started))
       add_call_usage(shared, bind_call_batches(call_batches), planned)
     }
@@ -545,6 +547,18 @@ mod_valid_server <- function(id, shared, active = NULL) {
       }
       fragility_text <- if (identical(fragility$status, "reference_failed")) {
         "The reference estimate failed, so fragility is undefined."
+      } else if (is.infinite(fragility$fragility) &&
+                 isTRUE(fragility$reference_estimate == 0)) {
+        # sign_flip() flags nothing against a reference without a sign.
+        paste(
+          "The reference estimate is 0, which has no sign, so no cell can",
+          "change it.",
+          if (identical(audit_estimand(), "mode_is")) {
+            paste("The most-common-label estimand is 0 or 1, so a cell",
+                  "estimate of 1 is not counted as a change from this",
+                  "reference.")
+          }
+        )
       } else if (is.infinite(fragility$fragility)) {
         "No cell in this grid changes the reference sign."
       } else {
@@ -553,14 +567,23 @@ mod_valid_server <- function(id, shared, active = NULL) {
           fragility$fragility
         )
       }
+      # The range and sign share are computed over the cells with an
+      # estimate; failed cells are counted separately.
+      n_estimated <- stability$n_cells - stability$n_failed_cells
+      cells_text <- if (stability$n_failed_cells > 0L) {
+        sprintf("Across the %d of %d cells with an estimate", n_estimated,
+                stability$n_cells)
+      } else {
+        sprintf("Across %d cells", stability$n_cells)
+      }
       shiny::tags$p(
         class = "fw-semibold",
         sprintf(
           paste0(
-            "Across %d cells, estimates range from %.3f to %.3f and ",
+            "%s, estimates range from %.3f to %.3f and ",
             "%.0f%% share the reference sign. %s"
           ),
-          stability$n_cells,
+          cells_text,
           stability$min,
           stability$max,
           100 * stability$sign_agreement,
