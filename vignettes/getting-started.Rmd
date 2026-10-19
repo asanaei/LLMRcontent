@@ -43,8 +43,8 @@ cb
 The study begins with a finite corpus: every statement whose category shares
 it will report, each with a stable identifier. In this simulated corpus a fifth
 of the statements are worded ambiguously, and the vector `truth` stands in for
-the judgment of a trained human coder. It is used only to label the statements
-drawn for the audit.
+the judgment of a trained human coder. It labels the statements drawn for the
+audit, and at the end it gives the share the estimates are meant to recover.
 
 ```{r}
 set.seed(110)
@@ -77,10 +77,13 @@ gold_data <- data.frame(
 The gold set divides the audited statements into a development split, used to
 choose a protocol, and a test split, which is sealed for evaluating the chosen
 one. By default `gold_set()` stratifies the split by label, so that both splits
-have the same class composition. That suits validation, but a split stratified
-by the human label is not a simple random sample of the corpus, and the
-correction below assumes one. With `stratify = FALSE` the test split is a
-simple random sample of the audited statements, and therefore of the corpus.
+have the same class composition. That suits validation. A split stratified by
+the human label is close to a simple random sample of the corpus, but not
+exactly one: rounding the allocation within each label gives statements of
+different labels slightly different chances of entering the test split. With
+`stratify = FALSE` the test split is a simple random sample of the audited
+statements, and therefore of the corpus, which is what the correction below
+asserts.
 
 ```{r}
 gold <- gold_set(
@@ -127,7 +130,7 @@ candidates <- list(
 )
 
 tuning <- tune_protocol(candidates, gold, .runner = offline_coder)
-tuning
+tuning$table[c("protocol", "protocol_id", "accuracy", "acc_lo", "acc_hi")]
 
 locked <- protocol_lock(candidates[[tuning$table$protocol_id[[1]]]])
 locked
@@ -173,7 +176,8 @@ the audited pairs, of the difference between the human indicator and the model
 indicator for the category. This is the difference estimator of survey
 sampling. Its standard error is `sqrt((1 - n/N) * s2 / n)`, where `s2` is the
 variance of the paired differences, `n` the number of pairs, and `N` the number
-of coded statements; the corpus share adds no sampling error, because the
+of coded statements with a parsed label; the corpus share adds no sampling
+error, because the
 corpus is the population whose shares are estimated. When model and human
 labels mostly agree, the differences vary little, and the corrected share is
 more precise than the share of human labels among the audited statements alone.
@@ -191,11 +195,15 @@ mean(truth == "supportive")
 ```
 
 The model codes every ambiguous statement as critical, so the naive supportive
-share falls below the simulated truth. The test split contains ambiguous
-statements that the human coder judged supportive, and the paired differences
-carry that disagreement into the corrected share. The interval reflects the 20
-audited pairs, and its interpretation remains conditional on the codebook and
-the human labels.
+share falls below the simulated share of 0.40. The interval for the corrected
+share covers 0.40, but with 20 audited pairs the point estimate is noisy: here
+it lies above the simulated share by about as much as the naive share lies
+below it. The development statements that chose the protocol are part of the
+corpus as well, while the test split is a random sample of the rest of it.
+Because the protocol was chosen for its accuracy on the development
+statements, the correction can understate the model's error among them, by an
+amount that shrinks with their share of the corpus. Interpretation remains
+conditional on the codebook and the human labels.
 
 `LLMR::report()` combines the validation result with the locked protocol and
 gold set. The report includes the holdout ledger, which now records the

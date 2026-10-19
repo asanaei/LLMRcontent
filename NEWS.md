@@ -40,8 +40,9 @@
   results gain a `usage` table, validation results gain `calls` and
   `tokens_unknown`, and audit cells gain `tokens_unknown`. `tokens` used to
   be an integer sum of `sent_tokens` and `rec_tokens` that read missing
-  counts as 0 and ignored `total_tokens`, so usage that was never reported
-  showed as 0 and a call with one count missing contributed the other.
+  counts as 0 and ignored `total_tokens`, so token columns holding only
+  missing values summed to 0 and a call with one count missing contributed
+  the other.
   `tokens` is a double.
 * Token count columns that are not numeric, or that hold negative,
   fractional, or infinite values, are treated as unknown, with the warnings
@@ -101,9 +102,10 @@
 * `gold_set()` refuses a `split` whose names are missing, empty, or
   repeated, or whose proportions are not finite and nonnegative, with
   errors that name the entries ("`split` proportions must be finite and
-  nonnegative: test = -0.5."). A missing or negative proportion used to
-  fail with an unrelated error from the allocation, a repeated name put
-  every unit in one split, and an empty name created a split named "". A
+  nonnegative: test = -0.5."). A missing proportion used to fail with
+  "missing value where TRUE/FALSE needed", a negative one with an error
+  from the allocation, a repeated name put every unit in one split, and an
+  empty name created a split named "". A
   sum other than 1 is reported with the actual sum. Valid specifications
   allocate units as before.
 * The `gold_split()` error for a split with no units, "No split named

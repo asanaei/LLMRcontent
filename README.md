@@ -29,7 +29,8 @@ cb <- codebook(
        cb_category("critical", "Presents the proposal as harmful or deficient."))
 )
 set.seed(110)
-g <- gold_set(data, text = "text", label = "label")
+# `data`: a random sample of `corpus`, coded by people
+g <- gold_set(data, text = "text", label = "label", stratify = FALSE)
 size <- gold_size(expected_agreement = 0.85, ci_width = 0.10)
 
 candidates <- list(

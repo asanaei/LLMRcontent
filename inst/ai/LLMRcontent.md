@@ -81,7 +81,10 @@ Use `tibble::as_tibble()` to extract either main table.
 library(LLMRcontent)
 
 set.seed(110)                            # the split assignment draws locally
-gold <- gold_set(labeled_df, text = "text", label = "label")
+# labeled_df: a simple random sample of big_df, coded by people. Without
+# stratification the test split is also a simple random sample of big_df.
+gold <- gold_set(labeled_df, text = "text", label = "label",
+                 stratify = FALSE)
 
 cb <- codebook("tone", "one sentence",
   list(cb_category("positive", "Approving or hopeful."),
@@ -127,7 +130,10 @@ tibble::as_tibble(coded)
   failures and conditions prevalence estimates on parsed corpus labels.
 - `gold_correct()` requires `design = "srs"`, a statement that the holdout
   units are a simple random sample of the coded corpus. Its default,
-  `"unknown"`, refuses to estimate.
+  `"unknown"`, refuses to estimate. The statement holds when the gold units
+  were drawn at random from the corpus and split with `stratify = FALSE`;
+  the default split, stratified by label, is close to such a sample but not
+  exactly one.
 - `tuning$table` is sorted by accuracy. Its `protocol` column holds the
   protocol labels, made unique when two protocols share one, and its
   `protocol_id` column holds each protocol's position in the candidate list;
