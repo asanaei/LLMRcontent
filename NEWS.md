@@ -60,6 +60,16 @@
   '0.7x' is not a number." The field used to drop tokens that did not parse
   and keep the rest: "0, 0.7x, 1" ran temperatures 0 and 1, "0,0,7" (a
   decimal comma) ran 0 and 7, and "0, -1, 5" ran all three.
+* The Studio reads uploaded and demo CSV files with every column as text,
+  so identifiers keep their leading zeros and all their digits. Once the
+  columns are mapped, identifier columns (the mapped id column and columns
+  named like `id`, `doc_id`, or `response_id`) stay as written, the text and
+  label columns stay character, and the other columns are converted as
+  `read.csv()` converts them. The Studio used to infer every column's type
+  on reading, so `007`, `07`, and `7` became one number and a gold set with
+  such identifiers was refused for duplicates, a gold unit could link to a
+  different corpus row, and a 20-digit identifier lost its last digits. The
+  gold, corpus, audit, and archive-results uploads are affected.
 * A demo export from the Studio's coding tab writes `coded.csv` once, with
   the `demo_notice` column added to the coded rows. The export used to write
   the file, read it back, and write it again with the notice. When the

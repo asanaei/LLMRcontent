@@ -427,7 +427,8 @@ mod_valid_server <- function(id, shared, active = NULL) {
             }
           )
           plan <- LLMRcontent::audit_plan(
-            data = data_raw(), text = text_col,
+            data = .content_type_columns(data_raw(), text = text_col),
+            text = text_col,
             estimator = est, labels = labs, prompt = input$prompt)
           cfg <- build_llm_config(
             shared$provider(),

@@ -801,7 +801,8 @@ mod_coder_server <- function(id, shared, active = NULL, artifacts = NULL) {
         "Gold-set creation is disabled until a label column is selected."
       } else if (identical(text_col, label_col)) {
         "Gold-set creation is disabled until different text and label columns are selected."
-      } else if (anyNA(gold_raw()[[label_col]])) {
+      } else if (anyNA(.content_type_columns(gold_raw()[label_col],
+                                             text = label_col)[[label_col]])) {
         "Gold-set creation is disabled until missing labels are resolved."
       } else if (length(dev_split) != 1L || !is.finite(dev_split) ||
                  dev_split <= 0 || dev_split >= 100) {

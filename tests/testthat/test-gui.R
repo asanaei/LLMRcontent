@@ -400,7 +400,7 @@ test_that("validation controls follow lock, ledger, and result state", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
   skip_if_not_installed("DT")
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
 
   shared <- list(
     mode = shiny::reactive("demo"),

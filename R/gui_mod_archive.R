@@ -205,7 +205,7 @@ mod_archive_server <- function(id, shared, artifacts = NULL,
 
     shiny::observeEvent(input$results_file, {
       result <- tryCatch(
-        read_csv_upload(input$results_file),
+        .content_type_columns(read_csv_upload(input$results_file)),
         error = function(e) {
           warn_user(paste("Could not read the results CSV:", conditionMessage(e)))
           NULL

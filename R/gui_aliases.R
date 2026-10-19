@@ -27,8 +27,17 @@ is_demo_result           <- function(...) LLMR.shiny::is_demo_result(...)
 demo_banner_ui           <- function(...) LLMR.shiny::demo_banner_ui(...)
 extract_token_counts     <- function(...) LLMR.shiny::extract_token_counts(...)
 as_display_table         <- function(...) LLMR.shiny::as_display_table(...)
-read_csv_upload          <- function(...) LLMR.shiny::read_csv_upload(...)
-read_csv_path            <- function(...) LLMR.shiny::read_csv_path(...)
+# Studio CSVs are read with every column as text and no missing-value strings,
+# so identifiers keep their leading zeros and all their digits. Column types
+# are restored by .content_type_columns() once the columns are mapped.
+read_csv_upload <- function(file) {
+  LLMR.shiny::read_csv_upload(file, col_classes = "character",
+                              na_strings = character(0))
+}
+read_csv_path <- function(path) {
+  LLMR.shiny::read_csv_path(path, col_classes = "character",
+                            na_strings = character(0))
+}
 column_names_for_mapping <- function(...) LLMR.shiny::column_names_for_mapping(...)
 guess_column             <- function(...) LLMR.shiny::guess_column(...)
 report_text              <- function(...) LLMR.shiny::report_text(...)
@@ -58,6 +67,29 @@ help_tip                  <- function(...) LLMR.shiny::help_tip(...)
     grepl("(^id$|_id$|^id_|_hash$|^hash$)", columns, ignore.case = TRUE) |
       tolower(columns) %in% c("cell", "call", "record")
   ]
+}
+
+# Restore column types in a CSV read as text. Identifier columns, those named
+# in `ids` and those whose names mark them as identifiers, stay as written,
+# with blank cells missing. Text columns, those named in `text` and those
+# whose names mark them as text, stay character, with "NA" missing. Every
+# other column is converted as utils::read.csv() would have converted it.
+.content_type_columns <- function(data, ids = NULL, text = NULL) {
+  ids <- union(ids, setdiff(.content_id_columns(data), text))
+  text <- union(setdiff(text, ids), setdiff(.content_text_columns(data), ids))
+  for (column in names(data)) {
+    x <- data[[column]]
+    if (!is.character(x)) next
+    if (column %in% ids) {
+      x[!is.na(x) & !nzchar(trimws(x))] <- NA_character_
+    } else if (column %in% text) {
+      x[x %in% "NA"] <- NA_character_
+    } else {
+      x <- utils::type.convert(x, as.is = TRUE, na.strings = "NA")
+    }
+    data[[column]] <- x
+  }
+  data
 }
 
 .content_text_columns <- function(data) {
