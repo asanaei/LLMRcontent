@@ -1,16 +1,49 @@
 # LLMRcontent 0.2.2
 
-* `audit_run()` records estimator outcomes in `estimate_status` and
-  `estimate_note`. Permutation placebos count unsuccessful evaluations.
-* The Studio's modal-label estimand returns `NA` when no label is parsed
-  or the most frequent labels tie.
-* Unreported token usage is unknown, not zero: tuning results gain `usage`,
-  validation results `calls` and `tokens_unknown`, and audit cells
-  `tokens_unknown`; `tokens` is `NA` when no call reported usage.
-* The archive appendix reports sent and received tokens separately and counts
-  calls with incomplete usage.
+* `audit_run()` accepts a cell's estimate only when the estimator returns
+  one finite number, and records each cell's outcome in the new columns
+  `estimate_status` and `estimate_note`. Four kinds of return used to pass
+  without notice: a vector estimate was cut to its first element, a
+  character value was converted with `as.numeric()`, an infinite estimate
+  counted as valid in `audit_stability()` and `audit_fragility()`, and an
+  estimator error became `NA` with its message discarded. Such cells now
+  have `estimate = NA`, and the warning "The estimator failed in k of n
+  audit cell(s)." names the first failure. An estimate of `NA` or `NaN`
+  has status `"missing"` and raises no warning.
+* `audit_placebo(type = "label_permutation")` applies the same rule to
+  each permuted estimate, keeps the first reason in the new `perm_note`
+  column, and warns "k permutation estimate(s) produced no usable value
+  and were excluded." Vector and infinite permuted estimates used to enter
+  the permutation distribution, and errors were counted without a reason.
+* The Studio's "most common label is the target" estimand returns `NA`
+  when no label is parsed or the most frequent labels tie. It used to
+  return 0 in both cases, breaking ties alphabetically, so a cell whose
+  replies all failed to parse could flip the sign of a reference estimate
+  of 1.
+* Token usage that the runner does not report is unknown, not zero. A
+  call's tokens are the runner's `total_tokens` when it reports one, and
+  otherwise `sent_tokens` plus `rec_tokens` when both are reported. The
+  `tokens` values of tuning tables, validation results, and audit cells sum
+  the calls with known totals and are `NA` when no call has one. Tuning
+  results gain a `usage` table, validation results gain `calls` and
+  `tokens_unknown`, and audit cells gain `tokens_unknown`. `tokens` used to
+  be an integer sum of `sent_tokens` and `rec_tokens` that read missing
+  counts as 0 and ignored `total_tokens`, so usage that was never reported
+  showed as 0 and a call with one count missing contributed the other.
+  `tokens` is now a double.
+* Token count columns that are not numeric, or that hold negative,
+  fractional, or infinite values, are treated as unknown, with the warnings
+  "The runner's sent_tokens column is <character>, not numeric; its counts
+  are treated as unknown." and "The runner's sent_tokens column contains
+  invalid counts; they are treated as unknown." (and likewise for
+  `rec_tokens` and `total_tokens`).
+* The archive appendix reports sent and received tokens separately and
+  counts calls with incomplete usage. It used to print usage logged as
+  `null` as "0 sent, 0 received".
 * The Studio counts usage from the calls each run made, including runs that
-  fail, and requires LLMR.shiny 0.1.3 or later.
+  fail, and requires LLMR.shiny 0.1.3 or later. The validation tab used to
+  pass only a call count, so the usage tile showed 0 tokens sent and
+  received after live audit calls.
 * When the runner reports a failed call or returns a missing response,
   `code_corpus()`, `tune_protocol()`, `validate_protocol()`, and
   `audit_run()` stop with an error of class `llmrcontent_run_failure`. Its
@@ -83,7 +116,8 @@ Corrections from an external methodological review of 0.2.0 (never on CRAN).
 
 # LLMRcontent 0.2.0
 
-Initial CRAN release.
+Not published. The July 2026 CRAN pretest declined this version because the
+LLMR.shiny then on CRAN did not export four objects the Studio uses.
 
 - `gold_set()` creates development and holdout splits from human-coded data,
   while `protocol_lock()` identifies the instrument used for validation and
