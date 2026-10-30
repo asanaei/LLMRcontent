@@ -101,14 +101,11 @@ its scope.
 ## Install
 
 ```r
-install.packages("LLMR")                     # on CRAN
+install.packages("LLMR")
 remotes::install_github("asanaei/LLMRcontent")
 ```
 
-Under the hood, LLMRcontent calls language models through the LLMR package,
-which reads your API key from an environment variable such as `OPENAI_API_KEY`.
-Set it once in your `~/.Renviron` file, a plain text file in your home
-directory.
+LLMRcontent calls models through LLMR, which reads your key from its default variable, such as `OPENAI_API_KEY`, in `~/.Renviron`. Operations that generate model output need an explicit `config`. If you have never used an API, follow [Set up a model](https://asanaei.github.io/LLMR/articles/setup.html).
 
 ## Offline execution for examples and tests
 
